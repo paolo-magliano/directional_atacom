@@ -4,18 +4,19 @@ import numpy as np
 from enum import Enum
 from mushroom_rl.utils.spaces import Box
 from air_hockey_challenge.environments.iiwas import AirHockeySingle
-from air_hockey_challenge.environments.position_control_wrapper import PositionControlIIWA
-from air_hockey_challenge.constraints import *
+from air_hockey_challenge.constraints import JointPositionConstraint, JointVelocityConstraint, EndEffectorConstraint, LinkConstraint
 from collections import OrderedDict
 
-from cremini_rl.envs.planar_air_hockey_env import AbsorbType, Cache, AccelerationControl
+from cremini_rl.constraints.constraints import ConstraintCollection as ConstraintList
+from cremini_rl.utils.control import VelocityControl, AccelerationControl
+from cremini_rl.envs.planar_air_hockey_env import AbsorbType, Cache
 
-class AirHockeyEnv(AccelerationControl, AirHockeySingle):
+class AirHockey(AirHockeySingle):
     def __init__(self, return_cost=True, headless=True):
         self.return_cost = return_cost
 
         # if headless:
-        super().__init__(horizon=300, viewer_params={'headless': headless, 'camera_params': {
+        super().__init__(horizon=200, viewer_params={'headless': headless, 'camera_params': {
                             'static': dict(distance=5.0, elevation=-45.0, azimuth=90.0, lookat=np.array([0.0, 0.0, 0.0])),
                             'follow': dict(distance=3.5, elevation=0.0, azimuth=90.0),
                             'top_static': dict(distance=5.0, elevation=-90.0, azimuth=90.0, lookat=np.array([0.0, 0.0, 0.0]))
@@ -38,8 +39,9 @@ class AirHockeyEnv(AccelerationControl, AirHockeySingle):
 
         self._end_effector_const = EndEffectorConstraint(self.env_info)
 
-        constraints_class = [JointPositionConstraint, JointVelocityConstraint, EndEffectorConstraint, LinkConstraint]
-        K_values = [1.0, 0.0, 0.5, 0.5]
+        self.info.action_space = Box(low=-np.ones(self.env_info['robot']['n_joints']), high=np.ones(self.env_info['robot']['n_joints']))
+
+    def constraint_init(self, constraints_class, K_values):
         self.K = []
         self.original_constraint_list = ConstraintList()
 
@@ -51,7 +53,7 @@ class AirHockeyEnv(AccelerationControl, AirHockeySingle):
         self.K = np.array(self.K)
 
     def step(self, action):
-        obs, reward, done, info = super(AirHockeyEnv, self).step(action)
+        obs, reward, done, info = super(AirHockey, self).step(action)
 
         cost = info["cost"]
 
@@ -74,7 +76,7 @@ class AirHockeyEnv(AccelerationControl, AirHockeySingle):
         self._write_data("puck_y_pos", puck_pos[1])
         self._write_data("puck_yaw_pos", puck_pos[2])
 
-        super(AirHockeyEnv, self).setup(obs)
+        super(AirHockey, self).setup(obs)
 
         self.absorb_type = AbsorbType.NONE
         self.ee_puck_dist = np.inf
@@ -83,7 +85,6 @@ class AirHockeyEnv(AccelerationControl, AirHockeySingle):
         puck_pos = next_state[:2].copy()
         puck_pos[0] += 1.51
         puck_vel = next_state[3:5]
-        joint_pos = next_state[6:13]
 
         if absorbing:
             r = 0
@@ -143,8 +144,6 @@ class AirHockeyEnv(AccelerationControl, AirHockeySingle):
         puck_pos, puck_vel = self.get_puck(state)
         q_max = np.concatenate([-q + self.env_info['robot']['joint_pos_limit'][0] * 0.95,
                                 q - self.env_info['robot']['joint_pos_limit'][1] * 0.95]).max()
-        dq_max = np.concatenate([-dq + self.env_info['robot']['joint_vel_limit'][0] * 0.95,
-                                 dq - self.env_info['robot']['joint_vel_limit'][1] * 0.95]).max()
 
         pos_offset = self.env_info['robot']['base_frame'][0][:3, 3]
         ee_pos = self._data.body("iiwa_1/striker_mallet").xpos - pos_offset
@@ -155,31 +154,31 @@ class AirHockeyEnv(AccelerationControl, AirHockeySingle):
 
         # ee_height_max = np.array([-ee_pos[2], ee_pos[2]]) + self.ee_height_ub
 
-        cost = max([q_max, dq_max, link_max.max()])
+        cost = max([q_max, link_max.max()])
         success = False
         if self.absorb_type == AbsorbType.GOAL:
             success = True
 
-        return {'cost': cost, 'success': success,  'q_cost': q_max, 'dq_cost': dq_max, 'link_cost': link_max.max(),
+        return {'cost': cost, 'success': success,  'q_cost': q_max, 'link_cost': link_max.max(),
                 'puck_vel': np.linalg.norm(puck_vel), 'joint_vel': np.linalg.norm(dq)}
 
     def constraint_func(self, q):
         N = len(q)
-        cons = np.zeros((N, 35))
-        J_q = np.zeros((N, 35, 14))
+        cons = np.zeros((N, self.original_constraint_list.output_dim()))
+        J_q = np.zeros((N, self.original_constraint_list.output_dim(), q.shape[-1]))
         for i in range(N):
             c, J = self._original_constraint(q[i])
 
             cons[i] = c
-            J_q[i] = J
+            J_q[i] = J[..., :q.shape[-1]]
 
-        return cons, J_q, np.zeros((N, 35, 0)), self.K
+        return cons, J_q, np.zeros((N, self.original_constraint_list.output_dim(), 0)), self.K
 
     def _original_constraint(self, q):
         pos = q[:7]
-        vel = q[7:]
+        vel = q[7:] if len(q) > 7 else np.zeros(7)
 
-        constraint_keys = ["joint_pos_constr", "joint_vel_constr", "ee_constr", "link_constr"]
+        constraint_keys = self.original_constraint_list.keys()
         constraints = []
         constraints_J = []
 
@@ -192,5 +191,43 @@ class AirHockeyEnv(AccelerationControl, AirHockeySingle):
 
         return const, J_q
 
+class AirHockeyVel(VelocityControl, AirHockey):
+    def __init__(self, return_cost=True, headless=True):
+        p_gain = [1500., 1500., 1200., 1200., 1000., 1000., 500.]
+        d_gain = [60, 80, 60, 30, 10, 1, 0.5]
+        i_gain = [0, 0, 0, 0, 0, 0, 0]
+
+        AirHockey.__init__(self, return_cost, headless)
+        VelocityControl.__init__(self, p_gain=p_gain, d_gain=d_gain, i_gain=i_gain)
+
+        constraints_class = [JointPositionConstraint, EndEffectorConstraint, LinkConstraint]
+        K_values = [1.0, 0.5, 0.5]
+
+        self.constraint_init(constraints_class, K_values)
+
+class AirHockeyAcc(AccelerationControl, AirHockey):
+    def __init__(self, return_cost=True, headless=True):
+        super(AirHockeyAcc, self).__init__(return_cost, headless)
+
+        constraints_class = [JointPositionConstraint, JointVelocityConstraint, EndEffectorConstraint, LinkConstraint]
+        K_values = [1.0, 0.0, 0.5, 0.5]
+
+        self.constraint_init(constraints_class, K_values)
+
     def _preprocess_action(self, action):
+        action = super(AirHockeyAcc, self)._preprocess_action(action)
         return action * self.env_info['robot']['joint_acc_limit'][1]
+
+    def _create_info_dictionary(self, state):
+        q, dq = self.get_joints(state)
+
+        dq_max = np.concatenate([-dq + self.env_info['robot']['joint_vel_limit'][0] * 0.95,
+                                 dq - self.env_info['robot']['joint_vel_limit'][1] * 0.95]).max()
+
+        info = super(AirHockeyAcc, self)._create_info_dictionary(state)
+
+        cost = max([dq_max, info['cost']])
+
+        info.update({'cost': cost, 'dq_cost': dq_max})
+
+        return info
