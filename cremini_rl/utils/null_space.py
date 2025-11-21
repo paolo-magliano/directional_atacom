@@ -26,7 +26,7 @@ def batch_smooth_basis_tensor(A, T0=None):
     U0 = Ux.transpose(-1, -2) @ T0
     U, s, Vh = torch.linalg.svd(U0)
     Q = U @ Vh
-    return (Ux @ Q)[..., :(A.shape[2] - A.shape[1])]
+    return (Ux @ Q)
 
 def batch_smooth_basis(A, T0=None):
     return np.array(batch_smooth_basis_tensor(torch.tensor(A).float(), T0), float)
