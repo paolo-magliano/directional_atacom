@@ -6,8 +6,21 @@ from mushroom_rl.environments.pybullet import PyBullet, PyBulletObservationType
 
 env_dir = os.path.dirname(__file__)
 
+class HeadlessPyBullet(PyBullet):
+    def render(self, record=False):
+        if not record:
+            return None
 
-class TiagoBase(PyBullet):
+        try:
+            frame = self._viewer.display()   # this will try pygame
+        except Exception:
+            # Headless fallback: get the frame without pygame
+            frame = self._viewer._get_image()
+
+        return frame
+
+
+class TiagoBase(HeadlessPyBullet):
     def __init__(self, gamma=0.99, horizon=500, differential_drive=True, use_head=False, use_torso=False,
                  use_right_arm=True, use_left_arm=False, use_gripper=False, self_collision=True, K_limit_velocity=0.5,
                  control='velocity', step_action_function=None, timestep=1 / 240., n_intermediate_steps=4,
@@ -66,7 +79,7 @@ class TiagoBase(PyBullet):
 
         super().__init__(model_files, actuation_spec, observation_spec, gamma,
                          horizon, timestep=timestep, n_intermediate_steps=n_intermediate_steps,
-                         debug_gui=debug_gui, size=(500, 500), distance=1.8)
+                         debug_gui=debug_gui, size=(1920, 1920), distance=10)
 
         self.init_post_process()
 

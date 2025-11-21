@@ -4,10 +4,10 @@ from cremini_rl.envs.cartpole_env.cart_pole import CartPoleGoalReaching
 
 from mushroom_rl.core import Environment
 
-
 class SafeCartPoleEnv(Environment):
-    def __init__(self, return_cost=True, gamma=0.99, horizon=1000):
-        self.base_env = CartPoleGoalReaching(gamma=gamma, horizon=horizon)
+    def __init__(self, return_cost=True, gamma=0.99, horizon=1000, headless=True):
+
+        self.base_env = CartPoleGoalReaching(gamma=gamma, horizon=horizon,  headless=headless)
         self.return_cost = return_cost
 
         super().__init__(self.base_env.info)
@@ -29,7 +29,7 @@ class SafeCartPoleEnv(Environment):
         return self.base_env.reset(state)
 
     def render(self, record=False):
-        self.base_env.render(record)
+        return self.base_env.render(record)
 
     def _compute_cost(self, obs):
         theta = np.arctan2(obs[1], obs[2])

@@ -28,7 +28,7 @@ class TiagoNavigationEnv(Environment):
         return self.base_env.reset(state)
 
     def render(self, record=False):
-        self.base_env.render(record)
+        return self.base_env.render(record)
 
     def _compute_cost(self, obs):
         # TODO compute cost with arm

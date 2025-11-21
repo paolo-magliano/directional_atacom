@@ -71,7 +71,6 @@ class CartPoleGoalReaching(MuJoCo):
         self.task_info['failure_count'] = 0
         return info
 
-
 if __name__ == '__main__':
     env = CartPoleGoalReaching()
     env.reset()
