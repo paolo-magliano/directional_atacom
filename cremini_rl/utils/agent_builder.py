@@ -5,6 +5,8 @@ from mushroom_rl.policy import ClippedGaussianPolicy
 from cremini_rl.algorithms import *
 from cremini_rl.utils.networks import *
 
+from cremini_rl.utils.beta_policy import BetaPolicy
+
 
 def agent_builder(alg, mdp, control_system, **kwargs):
     for key in ["n_features_actor", "n_features_critic", "n_features_constraint"]:
@@ -12,7 +14,8 @@ def agent_builder(alg, mdp, control_system, **kwargs):
             if isinstance(kwargs[key], list):
                 kwargs[key] = ' '.join(map(str, kwargs[key]))
     
-    alg = alg.replace("_dc", "") 
+    alg = alg.replace("_dc", "")
+    alg = alg.replace("_vel", "") 
 
     if alg == "td3":
         return build_td3(mdp, **kwargs)
@@ -45,7 +48,7 @@ def agent_builder(alg, mdp, control_system, **kwargs):
 def build_baseline_atacom_sac(mdp, control_system, atacom_lam, atacom_beta, atacom_dc, initial_replay_size, max_replay_size,
                               batch_size, n_features_actor, n_features_critic,
                               learning_rate_actor, learning_rate_critic, tau, lr_alpha, target_entropy,
-                              warmup_transitions, use_viability, use_cuda,
+                              warmup_transitions, use_viability, use_cuda, beta_policy,
                               **kwargs):
     actor_mu_params, actor_sigma_params, actor_optimizer, critic_params, alg_params = \
         build_sac_params(mdp, n_features_actor, n_features_critic, learning_rate_actor, learning_rate_critic,
@@ -60,6 +63,26 @@ def build_baseline_atacom_sac(mdp, control_system, atacom_lam, atacom_beta, atac
                               **alg_params,
                               initial_replay_size=initial_replay_size, max_replay_size=max_replay_size,
                               batch_size=batch_size)
+
+    if beta_policy:
+        from mushroom_rl.approximators import Regressor
+        from mushroom_rl.approximators.parametric import TorchApproximator
+        from itertools import chain
+
+        policy_params = {
+            'min_a': mdp.info.action_space.low,
+            'max_a': mdp.info.action_space.high
+        }
+
+        actor_alpha_approximator = Regressor(TorchApproximator, **actor_mu_params)
+        actor_beta_approximator = Regressor(TorchApproximator, **actor_sigma_params)
+
+        policy_parameters = chain(actor_alpha_approximator.model.network.parameters(),
+                                  actor_beta_approximator.model.network.parameters())
+        agent.policy = BetaPolicy(alpha_approximator=actor_alpha_approximator,
+                                  beta_approximator=actor_beta_approximator,
+                                  **policy_params)
+        agent._optimizer = actor_optimizer['class'](policy_parameters, **actor_optimizer['params'])
 
     return agent
 
@@ -242,8 +265,13 @@ def build_sac(mdp, initial_replay_size, max_replay_size, batch_size, n_features_
 def build_datacom_sac(mdp, control_system, initial_replay_size, max_replay_size, batch_size, n_features_actor,
                       n_features_critic, n_features_constraint, learning_rate_actor, learning_rate_critic,
                       accepted_risk, learning_rate_constraint,
-                      atacom_lam, atacom_beta, use_cuda, tau, lr_alpha, target_entropy,
+                      atacom_lam, atacom_beta, use_cuda, tau, lr_alpha, target_entropy, use_viability, atacom_dc,
                       warmup_transitions, cost_budget, lr_delta, init_delta, delta_warmup_transitions, **kwargs):
+    if hasattr(mdp, "constraint_func"):
+        constraint_func = mdp.constraint_func
+    else:
+        constraint_func = None
+    
     constraint_params = build_constraint(control_system, "gaussian",
                                          learning_rate_constraint, n_features_constraint, use_cuda)
 
@@ -260,7 +288,7 @@ def build_datacom_sac(mdp, control_system, initial_replay_size, max_replay_size,
                        initial_replay_size=initial_replay_size, max_replay_size=max_replay_size,
                        cost_budget=cost_budget, constraint_params=constraint_params, atacom_lam=atacom_lam,
                        atacom_beta=atacom_beta, lr_delta=lr_delta, init_delta=init_delta,
-                       delta_warmup_transitions=delta_warmup_transitions,
+                       delta_warmup_transitions=delta_warmup_transitions, constraint_func=constraint_func, use_viability=use_viability, atacom_dc=atacom_dc,
                        **alg_params)
 
     return agent

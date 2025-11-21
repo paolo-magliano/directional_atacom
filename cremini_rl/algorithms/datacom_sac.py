@@ -32,7 +32,7 @@ class DatacomSACPolicy(Policy):
     """
 
     def __init__(self, mu_approximator, sigma_approximator, constraint_approximator, control_system, mdp_info,
-                 accepted_risk, delta, atacom_lam, atacom_beta, target_entropy, min_a, max_a, log_std_min, log_std_max,
+                 accepted_risk, delta, atacom_lam, atacom_beta, target_entropy, min_a, max_a, log_std_min, log_std_max, constraint_func, use_viability, atacom_dc,
                  analytical_const=None):
         """
         Constructor.
@@ -100,8 +100,12 @@ class DatacomSACPolicy(Policy):
         self._learn_cbf = True
 
         self._analytical_const = analytical_const
-        self.K = 0.8
+        self.K = 0.5
         self.derivation_step_size = 1e-4
+
+        self._constraint_func = constraint_func
+        self._use_viability = use_viability
+        self._atacom_dc = atacom_dc
 
         self._add_save_attr(
             _mu_approximator='mushroom',
@@ -148,68 +152,17 @@ class DatacomSACPolicy(Policy):
         return out
 
     def _get_atacom_transformations(self, alpha, state):
-        # ALL TORCH
-
         q = self._control_system.get_q(state)  # (B, q)
         x = self._control_system.get_x(state)
         x_dot = self._control_system.get_x_dot(state)
         cons, J_k, J_x = self.compute_constraint_and_grad(q, x)  # (B, k), (B, k, q), (B, k, x)
 
-        # FROM HERE ATACOM IN NUMPY, maybe jit
-
-        # q = q.cpu().numpy()
-        # x = x.cpu().numpy()
-        # alpha = alpha.cpu().numpy()
-        #
-        # cons = cons.cpu().numpy()
-        # J_k = J_k.cpu().numpy()
-        # J_x = J_x.cpu().numpy()
-
-        if self._analytical_const:
-            anal_cons, anal_J_k, anal_J_x = self._analytical_const(q, x)
-
-            # Need to apply viability constraints to the analytical part
-            state_dim = anal_J_k.shape[2] // 2
-
-            # Move q jacobian to q_dot because we assume second order dynamics for viability constraints
-            anal_J_k_q = anal_J_k[:, :, :state_dim]
-
-            anal_J_k_new = np.zeros_like(anal_J_k)
-            anal_J_k_new[:, :, state_dim:] = anal_J_k_q
-
-            q_dot = q[:, state_dim:, None]
-
-            # Transform to viability constraint
-            anal_cons = anal_cons + self.K * (anal_J_k_q @ q_dot).squeeze(2)
-
-            # print(anal_cons)
-
-            cons = np.concatenate((anal_cons, cons), axis=1)
-            J_k = np.concatenate((anal_J_k_new, J_k), axis=1)
-            J_x = np.concatenate((anal_J_x, J_x), axis=1)
-
-            q_delta = q.copy()
-            q_delta[:, :state_dim] += q_delta[:, state_dim:] * self.derivation_step_size
-            _, anal_J_k_delta, _ = self._analytical_const(q, x)
-
-            anal_J_k_q_dot = (anal_J_k_q - anal_J_k_delta[:, :, :state_dim]) / self.derivation_step_size
-
-            drift = np.zeros(cons.shape + (1,))
-            drift[:, :anal_J_k.shape[1]] = (anal_J_k_q + anal_J_k_q_dot) @ q_dot
-        else:
-            drift = np.zeros(cons.shape + (1,))
-
-        if len(cons) == 1:
-            # print(cons)
-            self._debug_constraint_violations.append(cons.flatten())
-            self._debug_cbf_bound.append(self._delta().detach().numpy())
-
-            self._debug_J_k_variance.append(J_k.var())
-            self._debug_J_k_norm.append(np.linalg.norm(J_k))
-
-        lam = self._atacom_lam()
-
-        slack = np.maximum(-cons, 1e-5)
+        if self._constraint_func:
+            anal_cons, anal_J_k, anal_J_x, K = self._constraint_func(q)
+            K = np.concatenate((self.K * np.ones(cons.shape[-1]), K), axis=0)
+            cons = np.concatenate((cons, anal_cons), axis=1)
+            J_k = np.concatenate((J_k, anal_J_k), axis=1)
+            J_x = np.concatenate((J_x, anal_J_x), axis=1)
 
         # Check if G needs alpha
         if len(signature(self._control_system.G).parameters) == 1:
@@ -217,16 +170,32 @@ class DatacomSACPolicy(Policy):
         else:
             G = self._control_system.G(q, alpha)
 
+        f = self._control_system.f(q)
+
+        drift = np.zeros(cons.shape + (1,))
+
+        if self._use_viability and self._constraint_func:
+            drift_viability = self._viability_drift(q, cons, J_k, G, f, K)
+            drift[:, (K != 0)] += drift_viability
+
+
+        lam = self._atacom_lam()
+
+        slack = np.maximum(-cons, 1e-5)
+
         J_G = J_k @ G  # (B, k, u)
 
-        J_u = np.concatenate((J_G, self.J_slack(slack)), axis=-1)  # (B, k, u + k)
-
-        f = self._control_system.f(q)
         drift += J_k @ f  # (B, k)
 
         drift = np.maximum(drift, 0)
 
-        B_u = batch_smooth_basis(J_u)
+        # useful_constr = self._directional_constraints(drift.squeeze(-1), J_G, alpha)
+        # slack[np.logical_not(useful_constr)] = 1e+2
+
+        useful_constr = self._directional_constraints(drift.squeeze(-1), J_G, alpha)
+        slack[np.logical_not(useful_constr)] = 1e+2
+
+        J_u = np.concatenate((J_G, self.J_slack(slack)), axis=-1)  # (B, k, u + k)
 
         c = cons + slack
 
@@ -246,6 +215,14 @@ class DatacomSACPolicy(Policy):
         #                                          :self._control_system.dim_u].norm().cpu().numpy()])
 
         b = -uncontrollable - drift_compensation - contraction_term
+
+        # useful_constr = self._directional_constraints(drift.squeeze(-1), J_G, alpha)
+        # if useful_constr.sum() == 0:
+        #     B_u = np.broadcast_to(np.eye(J_u.shape[-1], alpha.shape[-1], dtype=float), (J_u.shape[0], J_u.shape[-1], alpha.shape[-1]))
+        # else:
+        #     J_u = J_u[:, useful_constr.squeeze(0)][..., np.concatenate((np.ones((alpha.shape[-1]), dtype=bool), useful_constr.squeeze(0)))]
+        B_u = batch_smooth_basis(J_u)[..., :alpha.shape[-1]]
+
 
         # if cons[0, 0] > -0.2:
         #     print("constraint", cons)
@@ -416,6 +393,42 @@ class DatacomSACPolicy(Policy):
         return chain(self._mu_approximator.model.network.parameters(),
                      self._sigma_approximator.model.network.parameters())
 
+    def _viability_drift(self, q, cons, J_k, G, f, K):
+        # Assumes states is stacked as [q, q_dot]
+        state_dim = G.shape[0] // 2
+        q_dot = q[:, state_dim:, None]
+
+        indicator = K == 0
+        # Only velocity jacobian for vel constraint
+        J_k_velocity = J_k[:, indicator, state_dim:]
+        # Only position jacobian for viability constraint
+        J_k_viability = J_k[:, ~indicator, :state_dim]
+
+        # Build new jacobian
+        J_k = np.concatenate([J_k_viability, J_k_velocity], axis=1)
+
+        # Transform to viability constraint
+        cons = cons + K * (J_k @ q_dot).squeeze(2)
+
+        q_delta = q.copy()
+        q_delta[:, :state_dim] += q_delta[:, state_dim:] * self.derivation_step_size
+        _, anal_J_k_delta, _, _ = self._constraint_func(q_delta)
+        J_k_viability_delta = J_k_viability.copy()
+        if anal_J_k_delta.shape[1] > 0:
+            J_k_viability_delta[:, (J_k.shape[1] - anal_J_k_delta.shape[1]):] = anal_J_k_delta[:, (~indicator[-anal_J_k_delta.shape[1]:]), :state_dim]
+
+        J_k_dot = (J_k_viability_delta - J_k_viability) / self.derivation_step_size
+
+        return (J_k_viability + J_k_dot) @ q_dot
+
+    def _directional_constraints(self, drift, J_G, alpha):
+        if self._atacom_dc:
+            constraint_direction = drift + (J_G @ alpha.detach().numpy()[..., None]).squeeze(-1)
+            useful_constr = constraint_direction > 0
+        else:
+            useful_constr = np.ones(drift.shape, dtype=bool)
+        return useful_constr
+
 
 class DatacomSAC(DeepAC):
     """
@@ -427,7 +440,7 @@ class DatacomSAC(DeepAC):
 
     def __init__(self, mdp_info, control_system, accepted_risk, actor_mu_params, actor_sigma_params, actor_optimizer,
                  critic_params, batch_size, initial_replay_size, max_replay_size, warmup_transitions, tau, lr_alpha,
-                 cost_budget, constraint_params, atacom_lam, atacom_beta, lr_delta, init_delta,
+                 cost_budget, constraint_params, atacom_lam, atacom_beta, lr_delta, init_delta, constraint_func, use_viability, atacom_dc,
                  delta_warmup_transitions, analytical_constraint=None,
                  use_log_alpha_loss=False, log_std_min=-20, log_std_max=2, target_entropy=None, critic_fit_params=None):
         """
@@ -510,7 +523,7 @@ class DatacomSAC(DeepAC):
                                   atacom_lam,
                                   atacom_beta, self._target_entropy, mdp_info.action_space.low,
                                   mdp_info.action_space.high,
-                                  log_std_min, log_std_max, analytical_constraint)
+                                  log_std_min, log_std_max, constraint_func, use_viability, atacom_dc, analytical_constraint)
 
         self._log_alpha = torch.tensor(0., dtype=torch.float32)
         self._delta_value = torch.tensor(np.maximum(init_delta, 0.1), dtype=torch.float32)
