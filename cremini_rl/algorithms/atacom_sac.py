@@ -7,6 +7,9 @@ import numpy as np
 
 from scipy.linalg import qr, svd
 
+import sys
+sys.path.append("/home/stud_magliano/projects/atacom_ijrr")
+from atacom.core.utils import smooth_basis as old_smooth_basis
 
 
 class AtacomSACBaseline(SAC):
@@ -48,7 +51,7 @@ class AtacomSACBaseline(SAC):
         return out
 
     def preprocess_action(self, state, alpha, next_cost):
-        # alpha = np.array([1, 1, 1])
+        alpha = np.clip(alpha, self.mdp_info.action_space.low, self.mdp_info.action_space.high)
 
         state_tensor = torch.from_numpy(state)
         q = self._control_system.get_q(state_tensor.numpy())
@@ -62,11 +65,11 @@ class AtacomSACBaseline(SAC):
 
         drift = np.zeros(cons.shape + (1,))
 
-        # Assumes states is stacked as [q, q_dot]
-        state_dim = G.shape[0] // 2
-        q_dot = q[:, state_dim:, None]
-
         if self._use_viability:
+            # Assumes states is stacked as [q, q_dot]
+            state_dim = G.shape[0] // 2
+            q_dot = q[:, state_dim:, None]
+
             # use lower half of the system as new dynamics
             G = G[state_dim:]
             f = f[:, state_dim:]
@@ -106,54 +109,44 @@ class AtacomSACBaseline(SAC):
 
         J_G = J_k @ G  # (B, k, u)
 
-        J_u = np.concatenate((J_G, self.J_slack(slack)), axis=-1)  # (B, k, u + k)
-
         drift += J_k @ f  # (B, k)
 
         drift = np.maximum(drift, 0).squeeze(-1)
 
-        # Null negative constraint directions
-        if self._atacom_dc:
-            next_q_dot = q_dot.squeeze() + alpha * self.derivation_step_size
-            if self._use_viability:
-                J_G_velocity = J_G[:, indicator]
-                J_G_viability = J_G[:, ~indicator]
-                constraint_direction = drift + np.concatenate([J_G_viability @ next_q_dot, J_G_velocity @ alpha], axis=1)
-            else:
-                # TODO Test this part
-                constraint_direction = drift + J_G @ np.concatenate([next_q_dot, alpha], axis=1)
-            Jj = J_u.copy()
-            J_u[:, indicator][constraint_direction[:, indicator] < 0] = 0   
-            # J_u[constraint_direction < 0] = 0  
-
-        B_u = batch_smooth_basis(J_u)
-
         c = cons + slack
 
-        # J_u_inv = torch.linalg.pinv(J_u, atol=0.1)
+        J_u = np.concatenate((J_G, self.J_slack(slack)), axis=-1)  # (B, k, u + k)
 
-        # J_u_inv = np.linalg.pinv(J_u)
+            # J_u[np.logical_not(useful_constr)] = 0
+            # while sum(J_u[0]) == 0:
+            #     J_u = J_u[1:]
+            #     drift = drift[1:]
+            #     c = c[1:]
 
-        # drift_compensation = J_u_inv @ drift
-        # contraction_term = lam * J_u_inv @ c[:, :, None]
+        # Discard non-useful constraints thanks removing lines
+        # J_u = J_u[:, useful_constr.squeeze()][..., np.concatenate((np.ones((alpha.shape[-1]), dtype=bool), useful_constr.squeeze()))]
+        # drift = drift[:, useful_constr.squeeze()]
+        # c = c[:, useful_constr.squeeze()]
+            
+            # B_u = batch_smooth_basis(J_u[None, :])[..., :alpha.shape[-1]].squeeze(0)
 
-        # b = - drift_compensation - contraction_term
+        b = np.concatenate([np.linalg.lstsq(J_u[i], - drift[i] - lam * c[i], rcond=None)[0] for i in range(J_u.shape[0])], axis=0)
 
-        b = np.array([np.linalg.lstsq(J_u[batch], - drift[batch] - lam * c[batch], rcond=None)[0] for batch in range(J_u.shape[0])])[..., np.newaxis]
+        # Discard non-useful constraints thanks to slack variables
+        useful_constr = self._directional_constraints(drift, J_G, alpha)
+        J_u = J_u[:, useful_constr.squeeze()][..., np.concatenate((np.ones((alpha.shape[-1]), dtype=bool), useful_constr.squeeze()))]
 
-        alpha = np.atleast_2d(np.clip(alpha, -1, 1))
+        B_u = batch_smooth_basis(J_u)[..., :alpha.shape[-1]]
 
-        tangential_term = B_u @ alpha[:, :, None]
-
-        u = tangential_term + b
-
-        action = u[:, :alpha.shape[1]].flatten()
-
-        # print(np.max(cons))
-        # print(drift_compensation.flatten()[:3])
-        # print(contraction_term.flatten()[:3])
-        # print(tangential_term.flatten()[:3])
-        # print(action)
-        # print("-" * 10)
+        tangential_term = (B_u @ alpha[:, None]).squeeze(-1)
+        action = tangential_term[..., :alpha.shape[-1]] + b[..., :alpha.shape[-1]]
 
         return action
+
+    def _directional_constraints(self, drift, J_G, alpha):
+        if self._atacom_dc:
+            constraint_direction = drift + J_G @ alpha
+            useful_constr = constraint_direction > 0
+        else:
+            useful_constr = np.ones(drift.shape, dtype=bool)
+        return useful_constr
