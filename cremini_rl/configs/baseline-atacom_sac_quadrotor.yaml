@@ -1,0 +1,28 @@
+use_viability: False
+
+n_epochs: 200
+n_steps: 20000
+
+atacom_lam: 25
+atacom_beta: 20
+
+initial_replay_size: 10000
+warmup_transitions: 10000
+max_replay_size: 200000
+
+learning_rate_actor: 3.e-4
+learning_rate_critic: 3.e-4
+
+lr_alpha: 1.e-5
+target_entropy: -4
+batch_size: 64
+
+use_cuda: False
+
+render: False
+n_episodes_test: 10
+
+n_features_critic: '256 256'
+n_features_actor: '256 256'
+
+
