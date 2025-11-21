@@ -17,6 +17,7 @@ from experiment_launcher.decorators import single_experiment
 import os
 import wandb
 import argparse
+import glob
 
 import numpy as np
 from copy import deepcopy
@@ -61,7 +62,7 @@ def experiment(results_dir: str,
 
     return_cost = "atacom" in alg or "safelayer" in alg or "lag" in alg or alg == "wcsac" or alg == "cbf_sac"
 
-    mdp, control_system = build_mdp(env_name, return_cost)
+    mdp, control_system = build_mdp(env_name, return_cost, vel_control=not kwargs['use_viability'], learning_constr=kwargs['learning_constr'])
 
     gamma = mdp.info.gamma
 
@@ -79,7 +80,7 @@ def experiment(results_dir: str,
     best_J = -np.inf
 
     for n in range(n_epochs):
-        data = evaluate(core, n_episodes_test, gamma, quiet, render=render, record=(record and n % 25 == 0))
+        data = evaluate(core, n_episodes_test, gamma, quiet, render=(render and n % 25 == 0), record=(record and n % 25 == 0))
 
         if data["J"] > best_J:
             best_J = data["J"]
@@ -90,8 +91,6 @@ def experiment(results_dir: str,
 
         log_data(data, n, logger)
 
-        logger.log_agent(agent)
-
         core.learn(n_steps=n_steps, n_steps_per_fit=1, quiet=quiet, render=render)
 
     data = evaluate(core, n_episodes_test, gamma, quiet, render=render, record=record)
@@ -99,8 +98,10 @@ def experiment(results_dir: str,
     logger.log_agent(agent)
     log_data(data, n + 1, logger)
 
-    wandb.save(os.path.join(logger.path, "*.msh"), logger.path)
-    wandb.save(os.path.join(logger.path, "*.npy"), logger.path)
+    art = wandb.Artifact("checkpoints", type="model")
+    for f in glob.glob(os.path.join(logger.path, "*.msh")) + glob.glob(os.path.join(logger.path, "*.npy")):
+        art.add_file(f)
+    wandb.log_artifact(art)
 
 
 def evaluate(core, n_episodes_test, gamma, quiet, render, record=False):
@@ -114,70 +115,29 @@ def evaluate(core, n_episodes_test, gamma, quiet, render, record=False):
 
     J = np.mean(compute_J(dataset, gamma))
     R = np.mean(compute_J(dataset))
-    cost = np.array(info["cost"])
-    if "q_cost" in info.keys():
-        q_cost = np.array(info["q_cost"])
-        mean_q_cost = []
-    if "dq_cost" in info.keys():
-        dq_cost = np.array(info["dq_cost"])
-        mean_dq_cost = []
-    if "link_cost" in info.keys():
-        link_cost = np.array(info["link_cost"])
-        mean_link_cost = []
 
-    mean_cost = []
-    sum_cost = []
-    max_violation = []
-    violation_rate = []
+    cost_metrics = {}
+    
+    for k, v in info.items():
+        if 'cost' in k:
+            ep_idx = 0
+            ep_violation_rate = []
+            ep_sum_cost = []
+            for ep in episode_length:
+                ep_cost = np.maximum(np.array(v[ep_idx:ep_idx + ep]), 0)
+                ep_violation_rate.append(np.sum(ep_cost > 0) / ep)
+                ep_sum_cost.append(np.sum(ep_cost))
 
-    epi_idx = 0
-    for epi in episode_length:
-        epi_cost = cost[epi_idx:epi_idx + epi]
-        epi_cost = np.maximum(epi_cost, 0)
-        max_violation.append(np.max(epi_cost))
-        violation_rate.append(np.sum(epi_cost > 0) / epi)
-        sum_cost.append(np.sum(epi_cost))
-        mean_cost.append(np.mean(epi_cost))
+                ep_idx += ep
 
-        if "q_cost" in info.keys():
-            epi_q_cost = q_cost[epi_idx:epi_idx + epi]
-            epi_q_cost = np.maximum(epi_q_cost, 0)
-            mean_q_cost.append(np.mean(epi_q_cost))
+            name = k.removesuffix("cost")
 
-        if "dq_cost" in info.keys():
-            epi_dq_cost = dq_cost[epi_idx:epi_idx + epi]
-            epi_dq_cost = np.maximum(epi_dq_cost, 0)
-            mean_dq_cost.append(np.mean(epi_dq_cost))
+            cost_metrics[f"ep_violation_rate"] = np.mean(ep_violation_rate)
+            cost_metrics[f"{name}ep_cost"] = np.mean(ep_sum_cost)
 
-        if "link_cost" in info.keys():
-            epi_link_cost = link_cost[epi_idx:epi_idx + epi]
-            epi_link_cost = np.maximum(epi_link_cost, 0)
-            mean_link_cost.append(np.mean(epi_link_cost))
+    data_dict = dict(J=J, R=R, episode_length=np.mean(episode_length))
 
-        epi_idx += epi
-
-    mean_cost = np.mean(mean_cost)
-    sum_cost = np.mean(sum_cost)
-
-    max_violation = np.mean(max_violation)
-    violation_rate = np.mean(violation_rate)
-
-
-    data_dict = dict(J=J, R=R, mean_cost=mean_cost, sum_cost=sum_cost, 
-                    max_violation=max_violation, violation_rate=violation_rate,
-                    episode_length=np.mean(episode_length))
-
-    if "q_cost" in info.keys():
-        mean_q_cost = np.mean(mean_q_cost)
-        data_dict["q_cost"] = mean_q_cost
-
-    if "dq_cost" in info.keys():
-        mean_dq_cost = np.mean(mean_dq_cost)
-        data_dict["dq_cost"] = mean_dq_cost
-
-    if "link_cost" in info.keys():
-        mean_link_cost = np.mean(mean_link_cost)
-        data_dict["link_cost"] = mean_link_cost
+    data_dict.update(cost_metrics)
 
     if hasattr(core.agent, "_critic_approximator"):
         data_dict["V"] = compute_V(core.agent, init_states, core.agent._critic_approximator)
@@ -200,6 +160,12 @@ def evaluate(core, n_episodes_test, gamma, quiet, render, record=False):
 
     if "delta_v" in info.keys():
         data_dict["delta_v"] = np.mean(info["delta_v"])
+    
+    if "dist_to_target" in info.keys():
+        data_dict["dist_to_target"] = np.mean(info["dist_to_target"])
+
+    if "cartesian_velocity" in info.keys():
+        data_dict["cartesian_velocity"] = np.mean(info["cartesian_velocity"])
 
     if hasattr(core.agent, "training_loss") and len(core.agent.training_loss) > 0:
         training_loss = np.mean(core.agent.training_loss)
@@ -342,7 +308,7 @@ def log_data(data, episode, logger):
         wandb.log({"policy": wandb.Video(os.path.join(logger.path, f"policy_{episode}.mp4"), format="mp4")}, step=episode)
         os.remove(record_path)
 
-def build_mdp(env_name, return_cost):
+def build_mdp(env_name, return_cost, vel_control=False, learning_constr=[]):
     if env_name == "ball2d":
         mdp = BallND(n=2, return_cost=return_cost)
 
@@ -371,16 +337,24 @@ def build_mdp(env_name, return_cost):
         control_system = CartPoleControlSystem(**dynamics_info)
 
     elif env_name == "air_hockey":
-        mdp = AirHockeyEnv(return_cost=return_cost)
-
-        q_idx = [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
-        control_system = AccelerationControlSystem(7, q_idx, 1)
+        if vel_control:
+            q_idx = [6, 7, 8, 9, 10, 11, 12]
+            mdp = AirHockeyVel(return_cost=return_cost)
+            control_system = VelocityControlSystem(7, q_idx, 1)
+        else:
+            q_idx = [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+            mdp = AirHockeyAcc(return_cost=return_cost)
+            control_system = AccelerationControlSystem(7, q_idx, 1)
 
     elif env_name == "planar_air_hockey":
-        mdp = PlanarAirhockeyEnv(return_cost=return_cost, dynamic_noise=0)
-
-        q_idx = [6, 7, 8, 9, 10, 11]
-        control_system = AccelerationControlSystem(3, q_idx, 1)
+        if vel_control:
+            q_idx = [6, 7, 8]
+            mdp = PlanarAirHockeyVel(return_cost=return_cost, dynamic_noise=0, learning_constr=learning_constr)
+            control_system = VelocityControlSystem(3, q_idx, 1)
+        else:
+            q_idx = [6, 7, 8, 9, 10, 11]
+            mdp = PlanarAirHockeyAcc(return_cost=return_cost, dynamic_noise=0, learning_constr=learning_constr)
+            control_system = AccelerationControlSystem(3, q_idx, 1)
 
     elif env_name == "goal_navigation":
         mdp = GoalNavigationEnv(return_cost=return_cost)
@@ -392,7 +366,6 @@ def build_mdp(env_name, return_cost):
 
         control_system = GoalNavigationControlSystem(vases=False)
 
-
     elif env_name == "moving_obs_2d":
         mdp = MovingObsEnv(return_cost=return_cost, random_obs=True)
 
@@ -400,6 +373,12 @@ def build_mdp(env_name, return_cost):
         x_idx = 2 + np.arange(2 * mdp.n_obs)
         x_dot_idx = x_idx[-1] + 1 + np.arange(2 * mdp.n_obs)
         control_system = MovingObsDynamics(2, q_idx, x_idx, x_dot_idx, mdp.vel_limits)
+
+    elif env_name == "quadrotor":
+        mdp = QuadrotorEnv(return_cost=return_cost)
+        
+        control_system = QuadrotorControlSystem(mdp.env_info['mass'], mdp.env_info['inertia'],
+                       mdp.env_info['gear_ratios'], mdp.env_info['gravity'])
 
     else:
         raise ValueError(f"Unknown environment: {env_name}")
@@ -415,7 +394,7 @@ def parse_args():
     arg_exp.add_argument("--env_name", type=str)
     arg_exp.add_argument("--alg", choices=[x for alg in ["sac", "td3", "datacom_sac", 'iqn_datacom_sac',
                                            "safelayer_td3", "lag_sac", "wc_lag_sac",
-                                           'cbf_sac', "baseline-atacom_sac"] for x in (alg, alg + "_dc")])
+                                           'cbf_sac', "baseline-atacom_sac"] for x in (alg, alg + "_dc", alg + "_vel", alg + "_vel_dc")])
 
     arg_exp.add_argument("--n_epochs", type=int)
     arg_exp.add_argument("--n_steps", type=int)
@@ -453,6 +432,7 @@ def parse_args():
     arg_exp.add_argument("--lr_alpha", type=float)
     arg_exp.add_argument("--warmup_transitions", type=float)
     arg_exp.add_argument("--target_entropy", type=float)
+    arg_exp.add_argument("--beta_policy", type=bool)
 
     # Atacom
     arg_exp.add_argument("--atacom_lam", type=float)
@@ -462,6 +442,7 @@ def parse_args():
     arg_exp.add_argument("--lr_delta", type=float)
     arg_exp.add_argument("--init_delta", type=float)
     arg_exp.add_argument("--delta_warmup_transitions", type=int)
+    arg_exp.add_argument("--learning_constr", type=str)
 
     # IQN
     arg_exp.add_argument("--quantile_embedding_dim", type=int)
