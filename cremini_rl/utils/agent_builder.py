@@ -246,32 +246,11 @@ def build_sac_params(mdp, n_features_actor, n_features_critic, learning_rate_act
     return actor_mu_params, actor_sigma_params, actor_optimizer, critic_params, alg_params
 
 
-def build_sac(mdp, initial_replay_size, max_replay_size, batch_size, n_features_actor, n_features_critic,
-              learning_rate_actor, learning_rate_critic, use_cuda, tau, lr_alpha, target_entropy, warmup_transitions,
-              **kwargs):
-    actor_mu_params, actor_sigma_params, actor_optimizer, critic_params, alg_params = \
-        build_sac_params(mdp, n_features_actor, n_features_critic, learning_rate_actor, learning_rate_critic,
-                         use_cuda, tau, lr_alpha, target_entropy, warmup_transitions)
-
-    print(alg_params, use_cuda)
-
-    agent = SAC(mdp.info, actor_mu_params, actor_sigma_params, actor_optimizer, critic_params, **alg_params,
-                initial_replay_size=initial_replay_size, max_replay_size=max_replay_size,
-                batch_size=batch_size)
-
-    return agent
-
-
 def build_datacom_sac(mdp, control_system, initial_replay_size, max_replay_size, batch_size, n_features_actor,
                       n_features_critic, n_features_constraint, learning_rate_actor, learning_rate_critic,
                       accepted_risk, learning_rate_constraint,
-                      atacom_lam, atacom_beta, use_cuda, tau, lr_alpha, target_entropy, use_viability, atacom_dc,
+                      atacom_lam, atacom_beta, use_cuda, tau, lr_alpha, target_entropy, atacom_dc,
                       warmup_transitions, cost_budget, lr_delta, init_delta, delta_warmup_transitions, **kwargs):
-    if hasattr(mdp, "constraint_func"):
-        constraint_func = mdp.constraint_func
-    else:
-        constraint_func = None
-    
     constraint_params = build_constraint(control_system, "gaussian",
                                          learning_rate_constraint, n_features_constraint, use_cuda)
 
@@ -288,7 +267,7 @@ def build_datacom_sac(mdp, control_system, initial_replay_size, max_replay_size,
                        initial_replay_size=initial_replay_size, max_replay_size=max_replay_size,
                        cost_budget=cost_budget, constraint_params=constraint_params, atacom_lam=atacom_lam,
                        atacom_beta=atacom_beta, lr_delta=lr_delta, init_delta=init_delta,
-                       delta_warmup_transitions=delta_warmup_transitions, constraint_func=constraint_func, use_viability=use_viability, atacom_dc=atacom_dc,
+                       delta_warmup_transitions=delta_warmup_transitions, atacom_dc=atacom_dc,
                        **alg_params)
 
     return agent

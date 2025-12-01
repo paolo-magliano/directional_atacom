@@ -61,8 +61,6 @@ class PlanarAirHockey(PlanarAirHockeySingle):
 
         self.info.action_space = Box(low=-np.ones(self.env_info['robot']['n_joints']), high=np.ones(self.env_info['robot']['n_joints']))
 
-        self.learning_constr = learning_constr.split('__')
-
     def constraint_init(self, constraints_class, K_values):
         self.K = []
         self.original_constraint_list = ConstraintList()
@@ -183,13 +181,7 @@ class PlanarAirHockey(PlanarAirHockeySingle):
         if self.absorb_type == AbsorbType.GOAL:
             success = True
 
-        cost = 0
-        if 'joint_pos' in self.learning_constr:
-            cost = max(q_max, cost)
-        if 'link' in self.learning_constr:
-            cost = max(link_max, cost)
-
-        return {'cost': cost, 'success': success, 'q_cost': q_max, 'link_cost': link_max,
+        return {'cost': max(q_max, link_max), 'success': success, 'q_cost': q_max, 'link_cost': link_max,
                 'puck_vel': np.linalg.norm(puck_vel), 'joint_vel': np.linalg.norm(dq)}
 
     def _modify_observation(self, obs):
@@ -241,46 +233,28 @@ class PlanarAirHockey(PlanarAirHockeySingle):
         return const, J_q
 
 class PlanarAirHockeyVel(VelocityControl, PlanarAirHockey):
-    def __init__(self, return_cost=True, dynamic_noise=0, headless=True, learning_constr=[]):
+    def __init__(self, return_cost=True, dynamic_noise=0, headless=True):
         p_gain = [1500., 1000., 500.] # 500 100 20            # 1000 500 100              # 1500 1000 500  # 500 500 500
         d_gain = [50., 10., 1.]                   # 10 2 1                  # 50 30 10                   # 50 50 50
         i_gain = [0, 0, 0]
 
-        PlanarAirHockey.__init__(self, return_cost, dynamic_noise, headless, learning_constr)
+        PlanarAirHockey.__init__(self, return_cost, dynamic_noise, headless)
         VelocityControl.__init__(self, p_gain=p_gain, d_gain=d_gain, i_gain=i_gain)
 
-        constraints_class = {
-            'joint_pos': JointPositionConstraint,
-            'link': EndEffectorConstraint,
-        }
-        constraints_K = {
-            'joint_pos': 1.0,
-            'link': 0.5,
-        }
+        constraints_class = [JointPositionConstraint, EndEffectorConstraint]
 
-        constraint_key = constraints_class.keys() - set(self.learning_constr)
+        K_values = [1.0, 0.5]
         
-        self.constraint_init([constraints_class[k] for k in constraint_key], [constraints_K[k] for k in constraint_key])
-
+        self.constraint_init(constraints_class, K_values)
 class PlanarAirHockeyAcc(AccelerationControl, PlanarAirHockey):
-    def __init__(self, return_cost=True, dynamic_noise=0, headless=True, learning_constr=[]):
-        super(PlanarAirHockeyAcc, self).__init__(return_cost, dynamic_noise, headless, learning_constr)
+    def __init__(self, return_cost=True, dynamic_noise=0, headless=True):
+        super(PlanarAirHockeyAcc, self).__init__(return_cost, dynamic_noise, headless)
 
-        constraints_class = {
-            'joint_pos': JointPositionConstraint,
-            'link': EndEffectorConstraint,
-            'joint_vel': JointVelocityConstraint
-        }
-        constraints_K = {
-            'joint_pos': 1.0,
-            'link': 0.5,
-            'joint_vel': 0.
-        }
+        constraints_class = [JointPositionConstraint, EndEffectorConstraint, JointVelocityConstraint]
 
-        constraint_key = constraints_class.keys() - set(self.learning_constr)
-        
-        self.constraint_init([constraints_class[k] for k in constraint_key], [constraints_K[k] for k in constraint_key])
+        K_values = [1.0, 0.5, 0.]
 
+        self.constraint_init(constraints_class, K_values)
 
     def _preprocess_action(self, action):
         action = super(PlanarAirHockeyAcc, self)._preprocess_action(action)
@@ -294,8 +268,7 @@ class PlanarAirHockeyAcc(AccelerationControl, PlanarAirHockey):
 
         info = super(PlanarAirHockeyAcc, self)._create_info_dictionary(state)
 
-        if 'dq_cost' in self.learning_constr:
-            info['cost'] = max(dq_max, info['cost'])
+        info['cost'] = max(dq_max, info['cost'])
 
         info.update({'dq_cost': dq_max})
 

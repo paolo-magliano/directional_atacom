@@ -1,4 +1,6 @@
 lr_alpha: 5.e-4
 warmup_transitions: 2000
 target_entropy: -3
+
+beta_policy: False
 # n_epochs: 500

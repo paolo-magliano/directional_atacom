@@ -62,7 +62,7 @@ def experiment(results_dir: str,
 
     return_cost = "atacom" in alg or "safelayer" in alg or "lag" in alg or alg == "wcsac" or alg == "cbf_sac"
 
-    mdp, control_system = build_mdp(env_name, return_cost, vel_control=not kwargs['use_viability'], learning_constr=kwargs['learning_constr'])
+    mdp, control_system = build_mdp(env_name, return_cost, vel_control=not kwargs['use_viability'])
 
     gamma = mdp.info.gamma
 
@@ -308,7 +308,7 @@ def log_data(data, episode, logger):
         wandb.log({"policy": wandb.Video(os.path.join(logger.path, f"policy_{episode}.mp4"), format="mp4")}, step=episode)
         os.remove(record_path)
 
-def build_mdp(env_name, return_cost, vel_control=False, learning_constr=[]):
+def build_mdp(env_name, return_cost, vel_control=False):
     if env_name == "ball2d":
         mdp = BallND(n=2, return_cost=return_cost)
 
@@ -349,11 +349,11 @@ def build_mdp(env_name, return_cost, vel_control=False, learning_constr=[]):
     elif env_name == "planar_air_hockey":
         if vel_control:
             q_idx = [6, 7, 8]
-            mdp = PlanarAirHockeyVel(return_cost=return_cost, dynamic_noise=0, learning_constr=learning_constr)
+            mdp = PlanarAirHockeyVel(return_cost=return_cost, dynamic_noise=0)
             control_system = VelocityControlSystem(3, q_idx, 1)
         else:
             q_idx = [6, 7, 8, 9, 10, 11]
-            mdp = PlanarAirHockeyAcc(return_cost=return_cost, dynamic_noise=0, learning_constr=learning_constr)
+            mdp = PlanarAirHockeyAcc(return_cost=return_cost, dynamic_noise=0)
             control_system = AccelerationControlSystem(3, q_idx, 1)
 
     elif env_name == "goal_navigation":
@@ -442,7 +442,6 @@ def parse_args():
     arg_exp.add_argument("--lr_delta", type=float)
     arg_exp.add_argument("--init_delta", type=float)
     arg_exp.add_argument("--delta_warmup_transitions", type=int)
-    arg_exp.add_argument("--learning_constr", type=str)
 
     # IQN
     arg_exp.add_argument("--quantile_embedding_dim", type=int)

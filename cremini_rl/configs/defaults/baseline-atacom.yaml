@@ -1,12 +1,12 @@
 atacom_lam: 25
-atacom_beta: 3
+atacom_beta: 0.75
 atacom_dc: False
 
 use_viability: True
 
 render: False
 
-n_epochs: 100
+n_epochs: 200
 n_steps: 10000
 
 initial_replay_size: 2000

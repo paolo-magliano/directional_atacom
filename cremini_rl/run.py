@@ -8,9 +8,9 @@ import os
 
 def main():
     # Choices: cartpole, tiago_navigation, planar_air_hockey, dense_ball2d, goal_navigation,
-    env = "quadrotor"
+    env = "planar_air_hockey"
     # Choices: sac, td3, datacom_sac, iqn_datacom_sac, safelayer_td3, lag_sac, wc_lag_sac, cbf_sac, baseline-atacom_sac
-    alg = "baseline-atacom_sac"
+    alg = "baseline-atacom_sac_dc"
 
     # Load configs based on the algorithm and environment, there are defaults for each algorithm. They are merged
     # with the environment specific config if it exists.
@@ -34,7 +34,7 @@ def main():
     else:
         debug = False
         use_wandb = True
-        n_seeds = 5
+        n_seeds = 10
         n_exp_in_parallel = 1
 
     n_record = int(config['record'])
@@ -65,7 +65,7 @@ def main():
             wandb_enabled=use_wandb,
             wandb_entity='paolo-magliano',
             wandb_project=env,
-            wandb_group=f"{alg}",
+            wandb_group=f"{alg}_beta_0.75",
         )
 
         assert not " " in wandb_options["wandb_group"], "NO SPACE IN GROUP NAME"
