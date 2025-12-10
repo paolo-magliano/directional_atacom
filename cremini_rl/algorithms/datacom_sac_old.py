@@ -74,7 +74,6 @@ class DatacomSACPolicy(Policy):
         # self._cbf_scale = 1 / (1 - mdp_info.gamma)
 
         # Neural Networks for the CBF
-        self._constraint_value_function_approximator = constraint_value_function_approximator
         self._constraint_approximator = constraint_approximator
 
         # ATACOM gain for error correction
@@ -86,7 +85,6 @@ class DatacomSACPolicy(Policy):
         self._margin = norm.pdf(norm.ppf(1 - accepted_risk)) / accepted_risk
 
         self._delta = delta
-        self._delta_value_function = delta_value_function
 
         self._target_entropy = torch.tensor(target_entropy)
 
@@ -222,7 +220,7 @@ class DatacomSACPolicy(Policy):
 
         J_u = np.concatenate((J_G, self.J_slack(slack)), axis=-1)  # (B, k, u + k)
 
-        B_u = batch_smooth_basis(J_u)[..., :alpha.shape[-1]]
+        B_u = batch_smooth_basis(J_u)
 
         c = cons + slack
 
@@ -262,28 +260,13 @@ class DatacomSACPolicy(Policy):
         return cons.double().cpu().numpy(), J_q.double().cpu().numpy(), J_x.double().cpu().numpy()
 
     def compute_constraint(self, state):
+        delta = self._delta().detach()
 
-        if self._constraint_approximator is None:
-            cbf = torch.tensor([]).to(state.device)
-        else:
-            cbf = self.constraint_value(state) - self._delta().detach()
-
-        if self._constraint_value_function_approximator is None:
-           cbf_value_function = torch.tensor([]).to(state.device)
-        else:
-            cbf_value_function = self.constraint_value_function(state) - self._delta_value_function().detach()
-
-        return torch.concatenate((cbf, cbf_value_function))
-
-    def constraint_value(self, state):
         cbf_mean, cbf_log_std = self._constraint_approximator.model.network(state)
         cbf_log_std = torch.clamp(cbf_log_std, self._log_std_min(), self._log_std_max())
-        return cbf_mean + cbf_log_std.exp() * self._margin
+        cbf = cbf_mean + cbf_log_std.exp() * self._margin - delta
 
-    def constraint_value_function(self, state):
-        cbf_mean, cbf_log_std = self._constraint_value_function_approximator.model.network(state)
-        cbf_log_std = torch.clamp(cbf_log_std, self._log_std_min(), self._log_std_max())
-        return cbf_mean + cbf_log_std.exp() * self._margin
+        return cbf
 
     def compute_action_and_log_prob(self, state):
         """
@@ -498,64 +481,39 @@ class DatacomSAC(DeepAC):
         self._critic_approximator = Regressor(TorchApproximator, **critic_params)
         self._target_critic_approximator = Regressor(TorchApproximator, **target_critic_params)
 
-        self._init_target(self._critic_approximator, self._target_critic_approximator)
-
-        if learn_constr:
-            target_constraint_params = deepcopy(constraint_params)
-            self._constraint_approximator = Regressor(TorchApproximator, **constraint_params)
-            self._target_constraint_approximator = Regressor(TorchApproximator, **target_constraint_params)
-            self._init_target(self._constraint_approximator, self._target_constraint_approximator)
-        else:
-            self._constraint_approximator = None
-            self._target_constraint_approximator = None
-
-        constraint_params["loss"] = self.gaussian_wasserstein_dist_value_function
-
-        if learn_constr_value_function:
-            constraint_value_function_params = deepcopy(constraint_params)
-            target_constraint_value_function_params = deepcopy(constraint_params)
-
-            self._constraint_value_function_approximator = Regressor(TorchApproximator, **constraint_value_function_params)
-            self._target_constraint_value_function_approximator = Regressor(TorchApproximator, **target_constraint_value_function_params)
-            self._init_target(self._constraint_value_function_approximator, self._target_constraint_value_function_approximator)
-        else:
-            self._constraint_value_function_approximator = None
-            self._target_constraint_value_function_approximator = None
+        target_constraint_params = deepcopy(constraint_params)
+        self._constraint_approximator = Regressor(TorchApproximator, **constraint_params)
+        self._target_constraint_approximator = Regressor(TorchApproximator, **target_constraint_params)
 
         # self.lr_schedueler = optim.lr_scheduler.LambdaLR(self._constraint_approximator.model._optimizer,
         #                                                  lambda step: 0.97 ** (step // 10000))
         actor_mu_approximator = Regressor(TorchApproximator, **actor_mu_params)
         actor_sigma_approximator = Regressor(TorchApproximator, **actor_sigma_params)
 
-        policy = DatacomSACPolicy(actor_mu_approximator, actor_sigma_approximator, self._constraint_value_function_approximator,
-                                  self._constraint_approximator, control_system, mdp_info, accepted_risk, self.delta, self.delta_value_function,
+        self._init_target(self._critic_approximator, self._target_critic_approximator)
+        self._init_target(self._constraint_approximator, self._target_constraint_approximator)
+
+        policy = DatacomSACPolicy(actor_mu_approximator, actor_sigma_approximator, None,
+                                  self._constraint_approximator, control_system, mdp_info, accepted_risk, self.delta, None,
                                   atacom_lam,
                                   atacom_beta, self._target_entropy, mdp_info.action_space.low,
                                   mdp_info.action_space.high,
                                   log_std_min, log_std_max, atacom_dc, analytical_constraint)
 
         self._log_alpha = torch.tensor(0., dtype=torch.float32)
-        self._delta_value = torch.tensor(init_delta, dtype=torch.float32)
-        self._delta_value_function = torch.tensor(init_delta, dtype=torch.float32)
+        self._delta_value = torch.tensor(np.maximum(init_delta, 0.1), dtype=torch.float32)
 
         self._log_alpha.requires_grad_()
         self._delta_value.requires_grad_()
-        self._delta_value_function.requires_grad_()
 
         self._alpha_optim = optim.Adam([self._log_alpha], lr=lr_alpha)
-
-        if lr_delta >= 0:
-            self._delta_optim = optim.Adam([self._delta_value], lr=lr_delta)
-            self._delta_optim_value_function = optim.Adam([self._delta_value_function], lr=lr_delta)
-            self._delta_warmup_transitions = delta_warmup_transitions
-
-        self._delta_max = torch.tensor(np.maximum(init_delta, 0.1), dtype=torch.float32)
+        self._delta_optim = optim.Adam([self._delta_value], lr=lr_delta)
+        self._delta_warmup_transitions = delta_warmup_transitions
 
         policy_parameters = chain(actor_mu_approximator.model.network.parameters(),
                                   actor_sigma_approximator.model.network.parameters())
 
         self.training_loss = []
-        self.training_loss_value_function = []
         self.cbf_reg_loss = []
 
         self._add_save_attr(
@@ -571,8 +529,6 @@ class DatacomSAC(DeepAC):
             _target_critic_approximator='mushroom',
             _constraint_approximator='mushroom',
             _target_constraint_approximator='mushroom',
-            _constraint_value_function_approximator='mushroom',
-            _target_constraint_value_function_approximator='mushroom',
             _use_log_alpha_loss='primitive',
             _log_alpha='torch',
             _delta_value='torch',
@@ -586,7 +542,7 @@ class DatacomSAC(DeepAC):
     def fit(self, dataset, **info):
         self._add_episode_cost(dataset)
 
-        if hasattr(self, "_delta_warmup_transitions") and dataset[-1][-1] and self._replay_memory.size > self._delta_warmup_transitions:
+        if dataset[-1][-1] and self._replay_memory.size > self._delta_warmup_transitions:
             self.update_delta()
 
         self._replay_memory.add(dataset)
@@ -619,39 +575,28 @@ class DatacomSAC(DeepAC):
 
             constraint_state, next_constraint_state = self.to_constraint_state(state, next_state)
 
-            def fit_cbf(self, approximator, target_approximator, loss_function, training_loss,
-                            cost, constraint_state, next_constraint_state, absorbing):
-                with torch.no_grad():
-                    next_mu, next_log_std = target_approximator.predict(
-                        next_constraint_state, output_tensor=True)
+            with torch.no_grad():
+                next_mu, next_log_std = self._target_constraint_approximator.predict(
+                    next_constraint_state, output_tensor=True)
 
-                error = torch.tensor(np.maximum(cost, 0), dtype=torch.float32, device=self.device)
-                state_tensor = torch.tensor(constraint_state, dtype=torch.float32, device=self.device)
+            error = torch.tensor(np.maximum(cost, 0), dtype=torch.float32, device=self.device)
+            state_tensor = torch.tensor(constraint_state, dtype=torch.float32, device=self.device)
 
-                approximator.model._optimizer.zero_grad()
+            self._constraint_approximator.model._optimizer.zero_grad()
 
-                pred = approximator.predict(state_tensor, output_tensor=True)
+            pred = self._constraint_approximator.predict(state_tensor, output_tensor=True)
 
-                loss = loss_function(pred, error, next_mu, next_log_std,
-                                        torch.tensor(absorbing, dtype=torch.float32, device=self.device),
-                                        torch.ones_like(error, device=self.device) * self.mdp_info.gamma)
+            loss = self.gaussian_wasserstein_dist(pred, error, next_mu, next_log_std,
+                                                  torch.tensor(absorbing, dtype=torch.float32, device=self.device),
+                                                  torch.ones_like(error, device=self.device) * self.mdp_info.gamma)
 
-                loss.backward()
+            loss.backward()
 
-                approximator.model._optimizer.step()
+            self._constraint_approximator.model._optimizer.step()
 
-                training_loss.append(loss.detach().item())
+            self.training_loss.append(loss.detach().item())
 
-                self._update_target(approximator, target_approximator)
-
-            if self._constraint_approximator is not None and self._target_constraint_approximator is not None:
-                fit_cbf(self, self._constraint_approximator, self._target_constraint_approximator, self.gaussian_wasserstein_dist, self.training_loss,
-                            cost, constraint_state, next_constraint_state, absorbing)
-
-            if self._constraint_value_function_approximator is not None and self._target_constraint_value_function_approximator is not None:
-                fit_cbf(self, self._constraint_value_function_approximator, self._target_constraint_value_function_approximator, self.gaussian_wasserstein_dist_value_function, self.training_loss_value_function,\
-                            cost, constraint_state, next_constraint_state, absorbing)
-
+            self._update_target(self._constraint_approximator, self._target_constraint_approximator)
             self._update_target(self._critic_approximator, self._target_critic_approximator)
 
     def _add_episode_cost(self, dataset):
@@ -709,34 +654,23 @@ class DatacomSAC(DeepAC):
 
     def update_delta(self):
         epi_states, _ = self.to_constraint_state(self._episode_states, self._episode_states)
+        c_epi = self.policy.compute_constraint(
+            torch.tensor(epi_states).to(self.device)).detach().cpu() + self.delta().detach() - self.delta()
+        self._delta_optim.zero_grad()
 
-        if self._constraint_approximator is not None:
-            cost_epi = self.policy.constraint_value(torch.tensor(epi_states).to(self.device)).detach().cpu() - self.delta()
-            self._delta_optim.zero_grad()
+        cum_cost = 0
+        cum_costs = []
+        for cost in np.array(self._episode_costs)[::-1]:
+            cum_cost = cost + self.mdp_info.gamma * cum_cost
+            cum_costs.append(cum_cost)
+        cum_costs = np.array(cum_costs)[::-1]
+        cum_costs = torch.tensor(cum_costs.copy(), dtype=torch.float)
 
-            costs = torch.tensor(self._episode_costs.copy(), dtype=torch.float) - self._cost_budget
-            loss = F.smooth_l1_loss(costs, cost_epi.flatten(), reduction='mean')
+        loss = F.smooth_l1_loss(cum_costs - self._cost_budget, c_epi.flatten(), reduction='mean')
 
-            loss.backward()
-            self._delta_optim.step()
-        
-        if self._constraint_value_function_approximator is not None:
-            cost_value_function_epi = self.policy.constraint_value_function(torch.tensor(epi_states).to(self.device)).detach().cpu() - self.delta_value_function()
-            self._delta_optim_value_function.zero_grad()
+        loss.backward()
 
-            cum_cost = 0
-            cum_costs = []
-            for cost in np.array(self._episode_costs)[::-1]:
-                cum_cost = cost + self.mdp_info.gamma * cum_cost
-                cum_costs.append(cum_cost)
-            cum_costs = np.array(cum_costs)[::-1]
-
-            costs_value_function = torch.tensor(cum_costs.copy(), dtype=torch.float) - self._cost_budget
-            loss_value_function = F.smooth_l1_loss(costs_value_function, cost_value_function_epi.flatten(), reduction='mean') 
-
-            loss_value_function.backward()
-            self._delta_optim_value_function.step()
-            
+        self._delta_optim.step()
 
     def _next_q(self, next_state, absorbing):
         """
@@ -759,7 +693,6 @@ class DatacomSAC(DeepAC):
     def _post_load(self):
         self._update_optimizer_parameters(self.policy.parameters())
         self.policy._constraint_approximator = self._constraint_approximator
-        self.policy._constraint_value_function_approximator = self._constraint_value_function_approximator
         self.policy._delta = self.delta
         self.policy._target_entropy = torch.tensor(self._target_entropy)
 
@@ -774,17 +707,13 @@ class DatacomSAC(DeepAC):
         self.policy._analytical_const = None
 
         self.training_loss = []
-        self.training_loss_value_function = []
 
         self._episode_cost = 0
         self._episode_end = False
 
     # No property because it needs to be passed to policy
     def delta(self):
-        return F.softplus(self._delta_value) #  F.softplus(torch.minimum(self._delta_value, self._delta_max))
-
-    def delta_value_function(self):
-        return F.softplus(self._delta_value_function) # F.softplus(torch.minimum(self._delta_value_function, self._delta_max))
+        return F.softplus(self._delta_value)
 
     @property
     def device(self):
@@ -799,7 +728,7 @@ class DatacomSAC(DeepAC):
         return self._alpha.detach().cpu().numpy()
 
     @staticmethod
-    def gaussian_wasserstein_dist_value_function(predicted_cost, cost, next_mean, next_log_std, absorbing, gamma, reduction='mean'):
+    def gaussian_wasserstein_dist(predicted_cost, cost, next_mean, next_log_std, absorbing, gamma, reduction='mean'):
         next_var = (2 * next_log_std).exp()
 
         predicted_mean = predicted_cost[0]
@@ -818,23 +747,6 @@ class DatacomSAC(DeepAC):
         target_var_absorbing = (cost - predicted_mean_detach) ** 2
 
         target_var = (1 - absorbing) * target_var_not_absorbing + absorbing * target_var_absorbing
-
-        J_sigma = F.mse_loss(predicted_cost[1].exp(), torch.sqrt(target_var), reduction=reduction)
-
-        return J_mu + J_sigma
-
-    @staticmethod
-    def gaussian_wasserstein_dist(predicted_cost, cost, next_mean, next_log_std, absorbing, gamma, reduction='mean'):
-        next_var = (2 * next_log_std).exp()
-
-        predicted_mean = predicted_cost[0]
-        predicted_mean_detach = predicted_mean.detach()
-
-        target_mean = cost 
-        
-        J_mu = F.mse_loss(predicted_mean, target_mean, reduction=reduction)
-
-        target_var = (cost - predicted_mean_detach) ** 2
 
         J_sigma = F.mse_loss(predicted_cost[1].exp(), torch.sqrt(target_var), reduction=reduction)
 

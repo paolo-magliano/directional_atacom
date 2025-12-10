@@ -250,7 +250,7 @@ def build_datacom_sac(mdp, control_system, initial_replay_size, max_replay_size,
                       n_features_critic, n_features_constraint, learning_rate_actor, learning_rate_critic,
                       accepted_risk, learning_rate_constraint,
                       atacom_lam, atacom_beta, use_cuda, tau, lr_alpha, target_entropy, atacom_dc,
-                      warmup_transitions, cost_budget, lr_delta, init_delta, delta_warmup_transitions, **kwargs):
+                      warmup_transitions, cost_budget, learn_constr, learn_constr_value_function, lr_delta, init_delta, delta_warmup_transitions, **kwargs):
     constraint_params = build_constraint(control_system, "gaussian",
                                          learning_rate_constraint, n_features_constraint, use_cuda)
 
@@ -265,8 +265,8 @@ def build_datacom_sac(mdp, control_system, initial_replay_size, max_replay_size,
                        actor_mu_params=actor_mu_params, actor_sigma_params=actor_sigma_params,
                        actor_optimizer=actor_optimizer, critic_params=critic_params, batch_size=batch_size,
                        initial_replay_size=initial_replay_size, max_replay_size=max_replay_size,
-                       cost_budget=cost_budget, constraint_params=constraint_params, atacom_lam=atacom_lam,
-                       atacom_beta=atacom_beta, lr_delta=lr_delta, init_delta=init_delta,
+                       cost_budget=cost_budget, constraint_params=constraint_params, learn_constr=learn_constr, learn_constr_value_function=learn_constr_value_function, 
+                       atacom_lam=atacom_lam, atacom_beta=atacom_beta, lr_delta=lr_delta, init_delta=init_delta,
                        delta_warmup_transitions=delta_warmup_transitions, atacom_dc=atacom_dc,
                        **alg_params)
 

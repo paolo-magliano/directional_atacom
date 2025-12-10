@@ -172,6 +172,11 @@ def evaluate(core, n_episodes_test, gamma, quiet, render, record=False):
         data_dict["cbf_loss"] = training_loss
         core.agent.training_loss = []
 
+    if hasattr(core.agent, "training_loss_value_function") and len(core.agent.training_loss_value_function) > 0:
+        training_loss = np.mean(core.agent.training_loss_value_function)
+        data_dict["cbf_loss_value_function"] = training_loss
+        core.agent.training_loss_value_function = []
+
     if hasattr(core.agent, "cbf_reg_loss") and len(core.agent.cbf_reg_loss) > 0:
         data_dict["cbf_reg_loss"] = np.mean(core.agent.cbf_reg_loss)
         core.agent.cbf_reg_loss = []
@@ -230,7 +235,7 @@ def evaluate(core, n_episodes_test, gamma, quiet, render, record=False):
             np.array(core.agent.policy._debug_importance_weights).flatten())
         core.agent.policy._debug_importance_weights = []
 
-    if hasattr(core.agent, "_constraint_approximator"):
+    if hasattr(core.agent, "_constraint_approximator") and core.agent._constraint_approximator is not None:
         if hasattr(core.agent, "_num_quantile_samples"):
             constraint_init_states, _ = core.agent.to_constraint_state(init_states, init_states)
             tau = torch.ones(constraint_init_states.shape[0], 1) - core.agent.policy.accepted_risk()
@@ -247,6 +252,29 @@ def evaluate(core, n_episodes_test, gamma, quiet, render, record=False):
             constraint_init_states, _ = core.agent.to_constraint_state(init_states, init_states)
             data_dict["cbf"] = np.mean(core.agent._constraint_approximator.predict(constraint_init_states))
 
+        if hasattr(core.agent, "delta"):
+            data_dict["delta"] = core.agent.delta().detach().numpy()
+
+    if hasattr(core.agent, "_constraint_value_function_approximator") and core.agent._constraint_value_function_approximator is not None:
+        if hasattr(core.agent, "_num_quantile_samples"):
+            constraint_init_states, _ = core.agent.to_constraint_state(init_states, init_states)
+            tau = torch.ones(constraint_init_states.shape[0], 1) - core.agent.policy.accepted_risk()
+            cbf = core.agent._constraint_value_function_approximator.predict(constraint_init_states, tau)
+            data_dict["cbf_value_function"] = np.mean(cbf)
+
+        elif hasattr(core.agent, "_delta_value"):
+            constraint_init_states, _ = core.agent.to_constraint_state(init_states, init_states)
+            mean, std = core.agent._constraint_value_function_approximator.predict(constraint_init_states)
+            data_dict["cbf_value_function"] = np.mean(mean)
+            data_dict["cbf_std_value_function"] = np.mean(std)
+
+        elif hasattr(core.agent, "to_constraint_state"):
+            constraint_init_states, _ = core.agent.to_constraint_state(init_states, init_states)
+            data_dict["cbf_value_function"] = np.mean(core.agent._constraint_value_function_approximator.predict(constraint_init_states))
+
+        if hasattr(core.agent, "delta_value_function"):
+            data_dict["delta_value_function"] = core.agent.delta_value_function().detach().numpy()
+
     if hasattr(core.agent.policy, "_debug_auxiliary_action") and len(core.agent.policy._debug_auxiliary_action) > 0:
         value = np.mean(core.agent.policy._debug_auxiliary_action, axis=0)
         data_dict["drift_comp_action_drift"] = value[0]
@@ -258,9 +286,6 @@ def evaluate(core, n_episodes_test, gamma, quiet, render, record=False):
 
     if hasattr(core.agent.policy, "_tolerance_cbf"):
         data_dict["tolerance_cbf"] = core.agent.policy._delta.detach().numpy()
-
-    if hasattr(core.agent, "delta"):
-        data_dict["delta"] = core.agent.delta().detach().numpy()
 
     return data_dict
 
@@ -442,6 +467,8 @@ def parse_args():
     arg_exp.add_argument("--lr_delta", type=float)
     arg_exp.add_argument("--init_delta", type=float)
     arg_exp.add_argument("--delta_warmup_transitions", type=int)
+    arg_exp.add_argument("--learn_constr", type=lambda x: x.lower() == "true")
+    arg_exp.add_argument("--learn_constr_value_function", type=lambda x: x.lower() == "true")
 
     # IQN
     arg_exp.add_argument("--quantile_embedding_dim", type=int)
