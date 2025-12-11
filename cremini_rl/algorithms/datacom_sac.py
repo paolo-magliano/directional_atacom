@@ -535,8 +535,19 @@ class DatacomSAC(DeepAC):
                                   log_std_min, log_std_max, atacom_dc, analytical_constraint)
 
         self._log_alpha = torch.tensor(0., dtype=torch.float32)
-        self._delta_value = torch.tensor(init_delta, dtype=torch.float32)
-        self._delta_value_function = torch.tensor(init_delta, dtype=torch.float32)
+
+        def softplus_inverse(y):
+            y = torch.tensor(y, dtype=torch.float32)
+            return y + torch.log1p(-torch.exp(-y))
+
+        if delta_warmup_transitions > 0:
+            self._delta_value = softplus_inverse(3.)
+            self._delta_value_function = softplus_inverse(3.)
+            self._delta_init = softplus_inverse(init_delta)
+        else:
+            self._delta_value = softplus_inverse(init_delta)
+            self._delta_value_function = softplus_inverse(init_delta)
+
 
         self._log_alpha.requires_grad_()
         self._delta_value.requires_grad_()
@@ -547,9 +558,8 @@ class DatacomSAC(DeepAC):
         if lr_delta >= 0:
             self._delta_optim = optim.Adam([self._delta_value], lr=lr_delta)
             self._delta_optim_value_function = optim.Adam([self._delta_value_function], lr=lr_delta)
-            self._delta_warmup_transitions = delta_warmup_transitions
-
-        self._delta_max = torch.tensor(np.maximum(init_delta, 0.1), dtype=torch.float32)
+        
+        self._delta_warmup_transitions = delta_warmup_transitions
 
         policy_parameters = chain(actor_mu_approximator.model.network.parameters(),
                                   actor_sigma_approximator.model.network.parameters())
@@ -586,7 +596,10 @@ class DatacomSAC(DeepAC):
     def fit(self, dataset, **info):
         self._add_episode_cost(dataset)
 
-        if hasattr(self, "_delta_warmup_transitions") and dataset[-1][-1] and self._replay_memory.size > self._delta_warmup_transitions:
+        if self._delta_warmup_transitions > 0 and self._replay_memory.size == self._delta_warmup_transitions:
+            self._delta_value_function = self._delta_init
+
+        if (hasattr(self, "delta_optim_value_function") or hasattr(self, "delta_optim")) and dataset[-1][-1] and self._replay_memory.size > self._delta_warmup_transitions:
             self.update_delta()
 
         self._replay_memory.add(dataset)
@@ -781,10 +794,10 @@ class DatacomSAC(DeepAC):
 
     # No property because it needs to be passed to policy
     def delta(self):
-        return F.softplus(self._delta_value) #  F.softplus(torch.minimum(self._delta_value, self._delta_max))
+        return F.softplus(self._delta_value)
 
     def delta_value_function(self):
-        return F.softplus(self._delta_value_function) # F.softplus(torch.minimum(self._delta_value_function, self._delta_max))
+        return F.softplus(self._delta_value_function)
 
     @property
     def device(self):
