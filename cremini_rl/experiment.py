@@ -361,25 +361,25 @@ def build_mdp(env_name, return_cost, vel_control=False):
 
         control_system = CartPoleControlSystem(**dynamics_info)
 
+    elif env_name == "air_hockey_vel":
+        q_idx = [6, 7, 8, 9, 10, 11, 12]
+        mdp = AirHockeyVel(return_cost=return_cost)
+        control_system = VelocityControlSystem(7, q_idx, 1)
+
     elif env_name == "air_hockey":
-        if vel_control:
-            q_idx = [6, 7, 8, 9, 10, 11, 12]
-            mdp = AirHockeyVel(return_cost=return_cost)
-            control_system = VelocityControlSystem(7, q_idx, 1)
-        else:
-            q_idx = [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
-            mdp = AirHockeyAcc(return_cost=return_cost)
-            control_system = AccelerationControlSystem(7, q_idx, 1)
+        q_idx = [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+        mdp = AirHockeyAcc(return_cost=return_cost)
+        control_system = AccelerationControlSystem(7, q_idx, 1)
+
+    elif env_name == "planar_air_hockey_vel":
+        q_idx = [6, 7, 8]
+        mdp = PlanarAirHockeyVel(return_cost=return_cost, dynamic_noise=0)
+        control_system = VelocityControlSystem(3, q_idx, 1)
 
     elif env_name == "planar_air_hockey":
-        if vel_control:
-            q_idx = [6, 7, 8]
-            mdp = PlanarAirHockeyVel(return_cost=return_cost, dynamic_noise=0)
-            control_system = VelocityControlSystem(3, q_idx, 1)
-        else:
-            q_idx = [6, 7, 8, 9, 10, 11]
-            mdp = PlanarAirHockeyAcc(return_cost=return_cost, dynamic_noise=0)
-            control_system = AccelerationControlSystem(3, q_idx, 1)
+        q_idx = [6, 7, 8, 9, 10, 11]
+        mdp = PlanarAirHockeyAcc(return_cost=return_cost, dynamic_noise=0)
+        control_system = AccelerationControlSystem(3, q_idx, 1)
 
     elif env_name == "goal_navigation":
         mdp = GoalNavigationEnv(return_cost=return_cost)
@@ -419,7 +419,7 @@ def parse_args():
     arg_exp.add_argument("--env_name", type=str)
     arg_exp.add_argument("--alg", choices=[x for alg in ["sac", "td3", "datacom_sac", 'iqn_datacom_sac',
                                            "safelayer_td3", "lag_sac", "wc_lag_sac",
-                                           'cbf_sac', "baseline-atacom_sac"] for x in (alg, alg + "_dc", alg + "_vel", alg + "_vel_dc")])
+                                           'cbf_sac', "baseline-atacom_sac"] for x in (alg, alg + "_dc")])
 
     arg_exp.add_argument("--n_epochs", type=int)
     arg_exp.add_argument("--n_steps", type=int)

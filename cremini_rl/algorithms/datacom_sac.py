@@ -32,7 +32,7 @@ class DatacomSACPolicy(Policy):
     """
 
     def __init__(self, mu_approximator, sigma_approximator, constraint_value_function_approximator, constraint_approximator, control_system, mdp_info,
-                 accepted_risk, delta, delta_value_function, atacom_lam, atacom_beta, target_entropy, min_a, max_a, log_std_min, log_std_max, atacom_dc,
+                 accepted_risk, delta, delta_value_function, atacom_lam, atacom_beta, target_entropy, min_a, max_a, log_std_min, log_std_max, atacom_dc, use_viability,
                  analytical_const=None):
         """
         Constructor.
@@ -102,10 +102,11 @@ class DatacomSACPolicy(Policy):
         self._learn_cbf = True
 
         self._analytical_const = analytical_const
-        self.K = 0.8
+        self.K = 5
         self.derivation_step_size = 1e-4
 
         self._atacom_dc = atacom_dc
+        self._use_viability = use_viability
 
         self._add_save_attr(
             _mu_approximator='mushroom',
@@ -157,6 +158,16 @@ class DatacomSACPolicy(Policy):
         x_dot = self._control_system.get_x_dot(state)
         cons, J_k, J_x = self.compute_constraint_and_grad(q, x)  # (B, k), (B, k, q), (B, k, x)
 
+        f = self._control_system.f(q)
+
+        # Check if G needs alpha
+        if len(signature(self._control_system.G).parameters) == 1:
+            G = self._control_system.G(q)
+        else:
+            G = self._control_system.G(q, alpha)
+
+        drift = np.zeros(cons.shape + (1,))
+
         if self._analytical_const:
             anal_cons, anal_J_k, anal_J_x = self._analytical_const(q, x)
 
@@ -174,8 +185,6 @@ class DatacomSACPolicy(Policy):
             # Transform to viability constraint
             anal_cons = anal_cons + self.K * (anal_J_k_q @ q_dot).squeeze(2)
 
-            # print(anal_cons)
-
             cons = np.concatenate((anal_cons, cons), axis=1)
             J_k = np.concatenate((anal_J_k_new, J_k), axis=1)
             J_x = np.concatenate((anal_J_x, J_x), axis=1)
@@ -186,33 +195,36 @@ class DatacomSACPolicy(Policy):
 
             anal_J_k_q_dot = (anal_J_k_q - anal_J_k_delta[:, :, :state_dim]) / self.derivation_step_size
 
-            drift = np.zeros(cons.shape + (1,))
             drift[:, :anal_J_k.shape[1]] = (anal_J_k_q + anal_J_k_q_dot) @ q_dot
-        else:
-            drift = np.zeros(cons.shape + (1,))
+            
+        elif self._use_viability and self._constraint_approximator is not None:
+            # Assumes states is stacked as [q, q_dot]
+            state_dim = q.shape[-1] // 2
+            q_dot = q[:, state_dim:, None]
 
-        if len(cons) == 1:
-            # print(cons)
-            self._debug_constraint_violations.append(cons.flatten())
-            self._debug_cbf_bound.append(self._delta().detach().numpy())
+            # use lower half of the system as new dynamics
+            G = G[state_dim:]
+            f = f[:, state_dim:]
 
-            self._debug_J_k_variance.append(J_k.var())
-            self._debug_J_k_norm.append(np.linalg.norm(J_k))
+            J_k = J_k[..., :state_dim]
+
+            # Transform to viability constraint
+            cons = cons + self.K * (J_k @ q_dot).squeeze(2)
+
+            # q_delta = q.copy()
+            # q_delta[:, :state_dim] += q_delta[:, state_dim:] * self.derivation_step_size
+            # _, J_k_delta, _, _ = self.compute_constraint_and_grad(q_delta, x)
+            # J_k_viability_delta = J_k_delta[:, ~indicator, :state_dim]
+            # J_k_dot = (J_k_viability_delta - J_k) / self.derivation_step_size
+
+            # drift += (J_k + J_k_dot) @ q_dot
 
         lam = self._atacom_lam()
 
         slack = np.maximum(-cons, 1e-5)
 
-        # Check if G needs alpha
-        if len(signature(self._control_system.G).parameters) == 1:
-            G = self._control_system.G(q)
-        else:
-            G = self._control_system.G(q, alpha)
-
         J_G = J_k @ G  # (B, k, u)
-
-
-        f = self._control_system.f(q)
+    
         drift += J_k @ f  # (B, k)
 
         drift = np.maximum(drift, 0)
@@ -432,7 +444,7 @@ class DatacomSAC(DeepAC):
 
     def __init__(self, mdp_info, control_system, accepted_risk, actor_mu_params, actor_sigma_params, actor_optimizer,
                  critic_params, batch_size, initial_replay_size, max_replay_size, warmup_transitions, tau, lr_alpha,
-                 cost_budget, constraint_params, learn_constr, learn_constr_value_function, atacom_lam, atacom_beta, lr_delta, init_delta, atacom_dc,
+                 cost_budget, constraint_params, learn_constr, learn_constr_value_function, atacom_lam, atacom_beta, lr_delta, init_delta, atacom_dc, use_viability,
                  delta_warmup_transitions, analytical_constraint=None,
                  use_log_alpha_loss=False, log_std_min=-20, log_std_max=2, target_entropy=None, critic_fit_params=None):
         """
@@ -532,7 +544,7 @@ class DatacomSAC(DeepAC):
                                   atacom_lam,
                                   atacom_beta, self._target_entropy, mdp_info.action_space.low,
                                   mdp_info.action_space.high,
-                                  log_std_min, log_std_max, atacom_dc, analytical_constraint)
+                                  log_std_min, log_std_max, atacom_dc, use_viability, analytical_constraint)
 
         self._log_alpha = torch.tensor(0., dtype=torch.float32)
 
@@ -540,7 +552,7 @@ class DatacomSAC(DeepAC):
             y = torch.tensor(y, dtype=torch.float32)
             return y + torch.log1p(-torch.exp(-y))
 
-        if delta_warmup_transitions > 0:
+        if delta_warmup_transitions > 0 and lr_delta < 0:
             self._delta_value = softplus_inverse(3.)
             self._delta_value_function = softplus_inverse(3.)
             self._delta_init = softplus_inverse(init_delta)
@@ -596,10 +608,11 @@ class DatacomSAC(DeepAC):
     def fit(self, dataset, **info):
         self._add_episode_cost(dataset)
 
-        if self._delta_warmup_transitions > 0 and self._replay_memory.size == self._delta_warmup_transitions:
-            self._delta_value_function = self._delta_init
+        if hasattr(self, "_delta_init") and self._replay_memory.size == self._delta_warmup_transitions:
+            self._delta_value = self._delta_init.clone()
+            self._delta_value_function = self._delta_init.clone()
 
-        if (hasattr(self, "delta_optim_value_function") or hasattr(self, "delta_optim")) and dataset[-1][-1] and self._replay_memory.size > self._delta_warmup_transitions:
+        if (hasattr(self, "_delta_optim_value_function") or hasattr(self, "_delta_optim")) and dataset[-1][-1] and self._replay_memory.size > self._delta_warmup_transitions:
             self.update_delta()
 
         self._replay_memory.add(dataset)
@@ -632,13 +645,15 @@ class DatacomSAC(DeepAC):
 
             constraint_state, next_constraint_state = self.to_constraint_state(state, next_state)
 
+            error = torch.tensor(np.maximum(cost, 0), dtype=torch.float32, device=self.device)
+            cost = torch.tensor(cost, dtype=torch.float32, device=self.device)
+
             def fit_cbf(self, approximator, target_approximator, loss_function, training_loss,
-                            cost, constraint_state, next_constraint_state, absorbing):
+                            error, constraint_state, next_constraint_state, absorbing):
                 with torch.no_grad():
                     next_mu, next_log_std = target_approximator.predict(
                         next_constraint_state, output_tensor=True)
 
-                error = torch.tensor(np.maximum(cost, 0), dtype=torch.float32, device=self.device)
                 state_tensor = torch.tensor(constraint_state, dtype=torch.float32, device=self.device)
 
                 approximator.model._optimizer.zero_grad()
@@ -663,7 +678,7 @@ class DatacomSAC(DeepAC):
 
             if self._constraint_value_function_approximator is not None and self._target_constraint_value_function_approximator is not None:
                 fit_cbf(self, self._constraint_value_function_approximator, self._target_constraint_value_function_approximator, self.gaussian_wasserstein_dist_value_function, self.training_loss_value_function,\
-                            cost, constraint_state, next_constraint_state, absorbing)
+                            error, constraint_state, next_constraint_state, absorbing)
 
             self._update_target(self._critic_approximator, self._target_critic_approximator)
 

@@ -26,11 +26,11 @@ use_cuda: False
 render: False
 n_episodes_test: 25
 
-init_delta: 0.01 # 3
+init_delta: 0.01
 lr_delta: -1 # 0.05
 delta_warmup_transitions: 0 # 50000
 
-use_viability: True
+use_viability: False
 
 learn_constr: True
 learn_constr_value_function: False
