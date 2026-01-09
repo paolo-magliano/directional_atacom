@@ -522,6 +522,7 @@ class DatacomSAC(DeepAC):
             self._target_constraint_approximator = None
 
         constraint_params["loss"] = self.gaussian_wasserstein_dist_value_function
+        constraint_params["output_mod"] = torch.nn.Softplus()
 
         if learn_constr_value_function:
             constraint_value_function_params = deepcopy(constraint_params)

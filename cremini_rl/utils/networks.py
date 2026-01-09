@@ -133,13 +133,13 @@ class TD3ActorNetwork(nn.Module):
 
 
 class GaussianConstraintNetwork(nn.Module):
-    def __init__(self, input_shape, output_shape, n_features, activation='relu', **kwargs):
+    def __init__(self, input_shape, output_shape, n_features, activation='relu', output_mod=None, **kwargs):
         super(GaussianConstraintNetwork, self).__init__()
 
         n_input = input_shape[-1]
         n_output = output_shape[0]
 
-        self._mu_net = build_mlp(n_input, n_features, n_output, activation, output_mod=nn.Softplus())
+        self._mu_net = build_mlp(n_input, n_features, n_output, activation, output_mod=output_mod)
         self._sigma_net = build_mlp(n_input, n_features, n_output, activation)
 
         self.apply(partial(weight_init, activation=activation))
