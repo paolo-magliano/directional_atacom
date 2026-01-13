@@ -7,10 +7,10 @@ import os
 
 
 def main():
-    # Choices: cartpole, tiago_navigation, planar_air_hockey, dense_ball2d, goal_navigation,
+    # Choices: cartpole, tiago_navigation, planar_air_hockey, planar_air_hockey_vel, dense_ball2d, goal_navigation,
     env = "planar_air_hockey"
     # Choices: sac, td3, datacom_sac, iqn_datacom_sac, safelayer_td3, lag_sac, wc_lag_sac, cbf_sac, baseline-atacom_sac
-    alg = "baseline-atacom_sac_dc"
+    alg = "datacom_sac"
 
     # Load configs based on the algorithm and environment, there are defaults for each algorithm. They are merged
     # with the environment specific config if it exists.
@@ -23,7 +23,7 @@ def main():
             configs.append(os.path.join("configs", f"{parts}_{env}.yaml"))
 
     config = hiyapyco.load(os.path.join("configs", "defaults", "defaults.yaml"), *configs)
-
+    
     # Check if on a slurm cluster or local machine
     local = is_local()
     if local:
@@ -43,7 +43,7 @@ def main():
         launcher_record = Launcher(f'{env}_record', f"experiment", n_seeds=n_record, start_seed=0, memory_per_core=10000, n_cores=1,
                         conda_env="d_atacom", hours=24, n_exps_in_parallel=n_record, partition="stud", gres='gpu:rtx2080:1')
     if n_seeds - n_record > 0:
-        launcher = Launcher(env, f"experiment", n_seeds=n_seeds-n_record, start_seed=n_record, memory_per_core=5000, n_cores=1,
+        launcher = Launcher(env, f"experiment", n_seeds=n_seeds-n_record, start_seed=n_record, memory_per_core=2000, n_cores=1,
                         conda_env="d_atacom", hours=24, n_exps_in_parallel=max(n_exp_in_parallel-n_record, 1), partition="stud")
 
     keys = []
@@ -64,8 +64,8 @@ def main():
         wandb_options = dict(
             wandb_enabled=use_wandb,
             wandb_entity='paolo-magliano',
-            wandb_project=env,
-            wandb_group=f"{alg}_beta_0.75",
+            wandb_project=f"{env}",
+            wandb_group=f"{alg}_no_scaled_action"
         )
 
         assert not " " in wandb_options["wandb_group"], "NO SPACE IN GROUP NAME"
