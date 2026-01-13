@@ -112,6 +112,9 @@ def evaluate(core, n_episodes_test, gamma, quiet, render, record=False):
     episode_length = compute_episodes_length(dataset)
     init_states = get_init_states(dataset)
     states = np.array([d[0] for d in dataset])
+    next_states = np.array([d[3] for d in dataset])
+    absorbing = np.array([d[4] for d in dataset])
+    last = np.array([d[5] for d in dataset])
 
     J = np.mean(compute_J(dataset, gamma))
     R = np.mean(compute_J(dataset))
@@ -236,6 +239,10 @@ def evaluate(core, n_episodes_test, gamma, quiet, render, record=False):
         core.agent.policy._debug_importance_weights = []
 
     if hasattr(core.agent, "_constraint_approximator") and core.agent._constraint_approximator is not None:
+        constraint_states, _ = core.agent.to_constraint_state(states, states)
+        predicted_cost, _ = core.agent._constraint_approximator.predict(constraint_states)
+        data_dict["cbf_error"] = np.abs(info['cost'] - predicted_cost).mean()
+        
         if hasattr(core.agent, "_num_quantile_samples"):
             constraint_init_states, _ = core.agent.to_constraint_state(init_states, init_states)
             tau = torch.ones(constraint_init_states.shape[0], 1) - core.agent.policy.accepted_risk()
@@ -256,6 +263,12 @@ def evaluate(core, n_episodes_test, gamma, quiet, render, record=False):
             data_dict["delta"] = core.agent.delta().detach().numpy()
 
     if hasattr(core.agent, "_constraint_value_function_approximator") and core.agent._constraint_value_function_approximator is not None:
+        constraint_states, next_constraint_states = core.agent.to_constraint_state(states, next_states)
+        predicted_cost, _ = core.agent._constraint_value_function_approximator.predict(constraint_states)
+        predicted_next_cost, _ = core.agent._constraint_value_function_approximator.predict(next_constraint_states)
+        true_cost = info['cost'] + (1 - absorbing) * gamma * predicted_next_cost
+        data_dict["cbf_error_value_function"] = np.abs(true_cost - predicted_cost).mean()
+
         if hasattr(core.agent, "_num_quantile_samples"):
             constraint_init_states, _ = core.agent.to_constraint_state(init_states, init_states)
             tau = torch.ones(constraint_init_states.shape[0], 1) - core.agent.policy.accepted_risk()
