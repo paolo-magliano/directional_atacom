@@ -238,10 +238,13 @@ def evaluate(core, n_episodes_test, gamma, quiet, render, record=False):
             np.array(core.agent.policy._debug_importance_weights).flatten())
         core.agent.policy._debug_importance_weights = []
 
+    if hasattr(core.agent, "_loss_critic") and len(core.agent._loss_critic) > 0:
+        data_dict["loss_critic"] = np.mean(core.agent._loss_critic)
+
     if hasattr(core.agent, "_constraint_approximator") and core.agent._constraint_approximator is not None:
         constraint_states, _ = core.agent.to_constraint_state(states, states)
         predicted_cost, _ = core.agent._constraint_approximator.predict(constraint_states)
-        data_dict["cbf_error"] = np.abs(info['cost'] - predicted_cost).mean()
+        data_dict["cbf_error"] = np.abs(np.concatenate(info['cost']) - predicted_cost).mean()
         
         if hasattr(core.agent, "_num_quantile_samples"):
             constraint_init_states, _ = core.agent.to_constraint_state(init_states, init_states)
@@ -266,7 +269,8 @@ def evaluate(core, n_episodes_test, gamma, quiet, render, record=False):
         constraint_states, next_constraint_states = core.agent.to_constraint_state(states, next_states)
         predicted_cost, _ = core.agent._constraint_value_function_approximator.predict(constraint_states)
         predicted_next_cost, _ = core.agent._constraint_value_function_approximator.predict(next_constraint_states)
-        true_cost = info['cost'] + (1 - absorbing) * gamma * predicted_next_cost
+        max_index = (np.arange(len(info['cost'])), np.array(info['cost']).argmax(axis=1)) 
+        true_cost = np.array(info['cost'])[max_index] + (1 - np.array(absorbing)[max_index]) * gamma * predicted_next_cost
         data_dict["cbf_error_value_function"] = np.abs(true_cost - predicted_cost).mean()
 
         if hasattr(core.agent, "_num_quantile_samples"):

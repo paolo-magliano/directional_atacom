@@ -267,7 +267,7 @@ def build_datacom_sac(mdp, control_system, initial_replay_size, max_replay_size,
                        initial_replay_size=initial_replay_size, max_replay_size=max_replay_size,
                        cost_budget=cost_budget, constraint_params=constraint_params, learn_constr=learn_constr, learn_constr_value_function=learn_constr_value_function, 
                        atacom_lam=atacom_lam, atacom_beta=atacom_beta, lr_delta=lr_delta, init_delta=init_delta,
-                       delta_warmup_transitions=delta_warmup_transitions, atacom_dc=atacom_dc, use_viability=use_viability,
+                       delta_warmup_transitions=delta_warmup_transitions, atacom_dc=atacom_dc, use_viability=use_viability, n_constraints=mdp.n_constraints,
                        **alg_params)
 
     return agent

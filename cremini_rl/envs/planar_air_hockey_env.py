@@ -71,6 +71,7 @@ class PlanarAirHockey(PlanarAirHockeySingle):
             self.K += [k] * constr.output_dim
 
         self.K = np.array(self.K)
+        self.n_constraints = self.K.shape[0] - 2
 
     def step(self, action):
         new_action = action.copy()
@@ -169,19 +170,19 @@ class PlanarAirHockey(PlanarAirHockeySingle):
         q, dq = self.get_joints(state)
         ee_pos, ee_vel = self.get_ee()
         puck_pos, puck_vel = self.get_puck(state)
-        q_max = np.concatenate([-q + self.env_info['robot']['joint_pos_limit'][0] * 0.95,
-                                q - self.env_info['robot']['joint_pos_limit'][1] * 0.95]).max()
+        q_constr = np.concatenate([-q + self.env_info['robot']['joint_pos_limit'][0] * 0.95,
+                                q - self.env_info['robot']['joint_pos_limit'][1] * 0.95])
 
         pos_offset = self.env_info['robot']['base_frame'][0][:3, 3]
         ee_pos = self._data.body("planar_robot_1/body_ee").xpos - pos_offset
 
-        link_max = (np.array([-ee_pos[0], -ee_pos[1], ee_pos[1]]) + self.link_constr_ub).max()
+        link_constr = (np.array([-ee_pos[0], -ee_pos[1], ee_pos[1]]) + self.link_constr_ub)
 
         success = False
         if self.absorb_type == AbsorbType.GOAL:
             success = True
 
-        return {'cost': max(q_max, link_max), 'success': success, 'q_cost': q_max, 'link_cost': link_max,
+        return {'cost': np.concatenate([q_constr, link_constr]), 'success': success, 'q_cost': q_constr.max(), 'link_cost': link_constr.max(),
                 'puck_vel': np.linalg.norm(puck_vel), 'joint_vel': np.linalg.norm(dq)}
 
     def _modify_observation(self, obs):
@@ -263,14 +264,14 @@ class PlanarAirHockeyAcc(AccelerationControl, PlanarAirHockey):
     def _create_info_dictionary(self, state):
         q, dq = self.get_joints(state)
 
-        dq_max = np.concatenate([-dq + self.env_info['robot']['joint_vel_limit'][0] * 0.95,
-                                 dq - self.env_info['robot']['joint_vel_limit'][1] * 0.95]).max()
+        dq_constr = np.concatenate([-dq + self.env_info['robot']['joint_vel_limit'][0] * 0.95,
+                                 dq - self.env_info['robot']['joint_vel_limit'][1] * 0.95])
 
         info = super(PlanarAirHockeyAcc, self)._create_info_dictionary(state)
 
-        info['cost'] = max(dq_max, info['cost'])
+        info['cost'] = np.concatenate([info['cost'], dq_constr])
 
-        info.update({'dq_cost': dq_max})
+        info.update({'dq_cost': dq_constr.max()})
 
         return info
 

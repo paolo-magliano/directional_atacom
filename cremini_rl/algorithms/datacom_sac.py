@@ -102,7 +102,7 @@ class DatacomSACPolicy(Policy):
         self._learn_cbf = True
 
         self._analytical_const = analytical_const
-        self.K = 5
+        self.K = 1.5
         self.derivation_step_size = 1e-4
 
         self._atacom_dc = atacom_dc
@@ -202,14 +202,10 @@ class DatacomSACPolicy(Policy):
             state_dim = q.shape[-1] // 2
             q_dot = q[:, state_dim:, None]
 
-            # use lower half of the system as new dynamics
-            G = G[state_dim:]
-            f = f[:, state_dim:]
-
-            J_k = J_k[..., :state_dim]
+            J_k_viability = J_k[..., :state_dim]
 
             # Transform to viability constraint
-            cons = cons + self.K * (J_k @ q_dot).squeeze(2)
+            cons = cons + self.K * (J_k_viability @ q_dot).squeeze(2)
 
             # q_delta = q.copy()
             # q_delta[:, :state_dim] += q_delta[:, state_dim:] * self.derivation_step_size
@@ -444,7 +440,7 @@ class DatacomSAC(DeepAC):
 
     def __init__(self, mdp_info, control_system, accepted_risk, actor_mu_params, actor_sigma_params, actor_optimizer,
                  critic_params, batch_size, initial_replay_size, max_replay_size, warmup_transitions, tau, lr_alpha,
-                 cost_budget, constraint_params, learn_constr, learn_constr_value_function, atacom_lam, atacom_beta, lr_delta, init_delta, atacom_dc, use_viability,
+                 cost_budget, constraint_params, learn_constr, learn_constr_value_function, atacom_lam, atacom_beta, lr_delta, init_delta, atacom_dc, use_viability, n_constraints,
                  delta_warmup_transitions, analytical_constraint=None,
                  use_log_alpha_loss=False, log_std_min=-20, log_std_max=2, target_entropy=None, critic_fit_params=None):
         """
@@ -503,8 +499,9 @@ class DatacomSAC(DeepAC):
         else:
             critic_params['n_models'] = 2
 
-        constraint_params["loss"] = self.gaussian_wasserstein_dist
         constraint_params['n_fit_targets'] = 5
+
+        constraint_value_function_params = deepcopy(constraint_params)
 
         target_critic_params = deepcopy(critic_params)
         self._critic_approximator = Regressor(TorchApproximator, **critic_params)
@@ -513,6 +510,8 @@ class DatacomSAC(DeepAC):
         self._init_target(self._critic_approximator, self._target_critic_approximator)
 
         if learn_constr:
+            constraint_params["loss"] = self.gaussian_wasserstein_dist
+            constraint_params["output_shape"] = (n_constraints, 2)
             target_constraint_params = deepcopy(constraint_params)
             self._constraint_approximator = Regressor(TorchApproximator, **constraint_params)
             self._target_constraint_approximator = Regressor(TorchApproximator, **target_constraint_params)
@@ -521,12 +520,10 @@ class DatacomSAC(DeepAC):
             self._constraint_approximator = None
             self._target_constraint_approximator = None
 
-        constraint_params["loss"] = self.gaussian_wasserstein_dist_value_function
-        constraint_params["output_mod"] = torch.nn.Softplus()
-
         if learn_constr_value_function:
-            constraint_value_function_params = deepcopy(constraint_params)
-            target_constraint_value_function_params = deepcopy(constraint_params)
+            constraint_value_function_params["loss"] = self.gaussian_wasserstein_dist_value_function
+            constraint_value_function_params["output_mod"] = torch.nn.Softplus()
+            target_constraint_value_function_params = deepcopy(constraint_value_function_params)
 
             self._constraint_value_function_approximator = Regressor(TorchApproximator, **constraint_value_function_params)
             self._target_constraint_value_function_approximator = Regressor(TorchApproximator, **target_constraint_value_function_params)
@@ -547,7 +544,7 @@ class DatacomSAC(DeepAC):
                                   mdp_info.action_space.high,
                                   log_std_min, log_std_max, atacom_dc, use_viability, analytical_constraint)
 
-        self._log_alpha = torch.tensor(0., dtype=torch.float32)
+        self._log_alpha = torch.tensor(1., dtype=torch.float32).log()
 
         def softplus_inverse(y):
             y = torch.tensor(y, dtype=torch.float32)
@@ -566,7 +563,8 @@ class DatacomSAC(DeepAC):
         self._delta_value.requires_grad_()
         self._delta_value_function.requires_grad_()
 
-        self._alpha_optim = optim.Adam([self._log_alpha], lr=lr_alpha)
+        if lr_alpha >= 0:
+            self._alpha_optim = optim.Adam([self._log_alpha], lr=lr_alpha)
 
         if lr_delta >= 0:
             self._delta_optim = optim.Adam([self._delta_value], lr=lr_delta)
@@ -580,6 +578,8 @@ class DatacomSAC(DeepAC):
         self.training_loss = []
         self.training_loss_value_function = []
         self.cbf_reg_loss = []
+
+        self._loss_critic = []
 
         self._add_save_attr(
             _critic_fit_params='pickle',
@@ -627,12 +627,14 @@ class DatacomSAC(DeepAC):
                 action_new, log_prob_new = self.policy.compute_action_and_log_prob_t(state)
                 loss = self._loss(state, action_new, log_prob_new)
                 self._optimize_actor_parameters(loss)
-                self._update_alpha(log_prob_new.detach())
+                if self._alpha_optim is not None:
+                    self._update_alpha(log_prob_new.detach())
 
             q_next = self._next_q(next_state, absorbing)
             q = reward + self.mdp_info.gamma * q_next
 
             self._critic_approximator.fit(state, action, q, **self._critic_fit_params)
+            self._loss_critic.append(np.mean([self._critic_approximator.model[i].loss_fit for i in range(len(self._critic_approximator.model))]))
 
             # Fit CBF
             if self._violation_replay_memory.size > self._batch_size() // 10:
@@ -646,7 +648,7 @@ class DatacomSAC(DeepAC):
 
             constraint_state, next_constraint_state = self.to_constraint_state(state, next_state)
 
-            error = torch.tensor(np.maximum(cost, 0), dtype=torch.float32, device=self.device)
+            error = torch.tensor(np.maximum(cost.max(axis=1), 0), dtype=torch.float32, device=self.device)
             cost = torch.tensor(cost, dtype=torch.float32, device=self.device)
 
             def fit_cbf(self, approximator, target_approximator, loss_function, training_loss,
@@ -686,10 +688,10 @@ class DatacomSAC(DeepAC):
     def _add_episode_cost(self, dataset):
         for sample in dataset:
             if self._episode_step_count == 0:
-                self._episode_costs = [0]
+                self._episode_costs = [sample[4]]
                 self._episode_states = [sample[0]]
 
-            self._episode_costs.append(max(sample[4], 0))
+            self._episode_costs.append(sample[4])
             self._episode_states.append(sample[3])
             self._episode_step_count += 1
 
@@ -710,7 +712,7 @@ class DatacomSAC(DeepAC):
     def _get_violations(self, dataset):
         new_data = []
         for el in dataset:
-            if el[4] > 0:
+            if (el[4] > 0).any():
                 new_data.append(el[:2] + (el[4], el[3]) + el[5:])
 
         return new_data
@@ -743,7 +745,7 @@ class DatacomSAC(DeepAC):
             cost_epi = self.policy.constraint_value(torch.tensor(epi_states).to(self.device)).detach().cpu() - self.delta()
             self._delta_optim.zero_grad()
 
-            costs = torch.tensor(self._episode_costs.copy(), dtype=torch.float) - self._cost_budget
+            costs = torch.tensor(np.concatenate(self._episode_costs).copy(), dtype=torch.float) - self._cost_budget
             loss = F.smooth_l1_loss(costs, cost_epi.flatten(), reduction='mean')
 
             loss.backward()
@@ -756,7 +758,7 @@ class DatacomSAC(DeepAC):
             cum_cost = 0
             cum_costs = []
             for cost in np.array(self._episode_costs)[::-1]:
-                cum_cost = cost + self.mdp_info.gamma * cum_cost
+                cum_cost = cost.max() + self.mdp_info.gamma * cum_cost
                 cum_costs.append(cum_cost)
             cum_costs = np.array(cum_costs)[::-1]
 
@@ -859,11 +861,11 @@ class DatacomSAC(DeepAC):
         predicted_mean = predicted_cost[0]
         predicted_mean_detach = predicted_mean.detach()
 
-        target_mean = cost 
+        target_mean = cost.flatten() 
         
         J_mu = F.mse_loss(predicted_mean, target_mean, reduction=reduction)
 
-        target_var = (cost - predicted_mean_detach) ** 2
+        target_var = (cost.flatten() - predicted_mean_detach) ** 2
 
         J_sigma = F.mse_loss(predicted_cost[1].exp(), torch.sqrt(target_var), reduction=reduction)
 
