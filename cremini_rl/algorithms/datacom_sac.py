@@ -627,14 +627,14 @@ class DatacomSAC(DeepAC):
                 action_new, log_prob_new = self.policy.compute_action_and_log_prob_t(state)
                 loss = self._loss(state, action_new, log_prob_new)
                 self._optimize_actor_parameters(loss)
-                if self._alpha_optim is not None:
+                if hasattr(self, "_alpha_optim"):
                     self._update_alpha(log_prob_new.detach())
 
             q_next = self._next_q(next_state, absorbing)
             q = reward + self.mdp_info.gamma * q_next
 
             self._critic_approximator.fit(state, action, q, **self._critic_fit_params)
-            self._loss_critic.append(np.mean([self._critic_approximator.model[i].loss_fit for i in range(len(self._critic_approximator.model))]))
+            self._loss_critic.append(np.mean([self._critic_approximator.model[i].loss_fit.copy() for i in range(len(self._critic_approximator.model))]))
 
             # Fit CBF
             if self._violation_replay_memory.size > self._batch_size() // 10:
