@@ -1,5 +1,5 @@
 atacom_lam: 25
-atacom_beta: 0.75
+atacom_beta: 1.2
 atacom_dc: False
 
 use_viability: False

@@ -9,7 +9,7 @@ max_replay_size: 200000
 batch_size: 64
 
 atacom_lam: 60
-atacom_beta: 0.5
+atacom_beta: 1.2
 cost_budget: 40
 
 learning_rate_constraint: 5.e-4

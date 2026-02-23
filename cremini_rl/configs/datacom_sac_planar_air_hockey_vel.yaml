@@ -4,7 +4,7 @@ n_epochs: 200
 n_steps: 10000
 
 atacom_lam: 25
-atacom_beta: 0.5
+atacom_beta: 1.2
 
 cost_budget: [1]
 
@@ -32,5 +32,5 @@ delta_warmup_transitions: 50000
 
 use_viability: False
 
-learn_constr: True
-learn_constr_value_function: False
+constr_aggregation: 'array' # none, array, max
+constr_aggregation_value_function: 'none' # none, array, max

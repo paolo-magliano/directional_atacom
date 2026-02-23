@@ -4,13 +4,14 @@ n_epochs: 200
 n_steps: 10000
 
 atacom_lam: 25
-atacom_beta: 0.5
+atacom_beta: 1.2
 
 cost_budget: [1]
 
 initial_replay_size: 2000
 warmup_transitions: 2000
 max_replay_size: 200000
+violation_memory_ratio: 0.1
 
 learning_rate_constraint: 5.e-4
 
@@ -32,5 +33,5 @@ delta_warmup_transitions: 50000
 
 use_viability: True
 
-learn_constr: True
-learn_constr_value_function: False
+constr_aggregation: 'array' # none, array, max
+constr_aggregation_value_function: 'none' # none, array, max

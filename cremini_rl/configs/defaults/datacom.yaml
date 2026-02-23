@@ -1,5 +1,7 @@
-n_epochs: 100
+n_epochs: 200
 n_steps: 10000
+
+violation_memory_ratio: 0.1
 
 use_viability: True
 
@@ -16,5 +18,5 @@ init_delta: 1
 lr_delta: 0.1
 delta_warmup_transitions: 50000
 
-learn_constr: False
-learn_constr_value_function: True
+constr_aggregation: 'none' # none, array, max
+constr_aggregation_value_function: 'max' # none, array, max

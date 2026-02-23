@@ -1,4 +1,4 @@
-n_epochs: 100
+n_epochs: 200
 n_steps: 10000
 n_episodes_test: 25
 quiet: True
