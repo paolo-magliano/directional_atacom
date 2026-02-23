@@ -71,7 +71,7 @@ class PlanarAirHockey(PlanarAirHockeySingle):
             self.K += [k] * constr.output_dim
 
         self.K = np.array(self.K)
-        self.n_constraints = self.K.shape[0] - 2
+        self.n_learnable_constr = self.K.shape[0] - 2
 
     def step(self, action):
         new_action = action.copy()
@@ -235,18 +235,18 @@ class PlanarAirHockey(PlanarAirHockeySingle):
 
 class PlanarAirHockeyVel(VelocityControl, PlanarAirHockey):
     def __init__(self, return_cost=True, dynamic_noise=0, headless=True):
-        p_gain = [1500., 1000., 500.] # 500 100 20            # 1000 500 100              # 1500 1000 500  # 500 500 500
-        d_gain = [50., 10., 1.]                   # 10 2 1                  # 50 30 10                   # 50 50 50
+        p_gain = [1500., 1000., 500.]
+        d_gain = [50., 10., 1.] 
         i_gain = [0, 0, 0]
 
-        PlanarAirHockey.__init__(self, return_cost, dynamic_noise, headless)
-        VelocityControl.__init__(self, p_gain=p_gain, d_gain=d_gain, i_gain=i_gain)
+        super(PlanarAirHockeyVel, self).__init__(return_cost=return_cost, dynamic_noise=dynamic_noise, headless=headless, p_gain=p_gain, d_gain=d_gain, i_gain=i_gain)
 
         constraints_class = [JointPositionConstraint, EndEffectorConstraint]
 
         K_values = [1.0, 0.5]
         
         self.constraint_init(constraints_class, K_values)
+        
 class PlanarAirHockeyAcc(AccelerationControl, PlanarAirHockey):
     def __init__(self, return_cost=True, dynamic_noise=0, headless=True):
         super(PlanarAirHockeyAcc, self).__init__(return_cost, dynamic_noise, headless)

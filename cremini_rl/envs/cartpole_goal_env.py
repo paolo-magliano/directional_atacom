@@ -12,13 +12,16 @@ class SafeCartPoleEnv(Environment):
 
         super().__init__(self.base_env.info)
 
-        self.constr_dim = 1
+        self.n_learnable_constr = 1
 
     def step(self, action):
         obs, reward, absorb, info = self.base_env.step(action)
 
         cost = self._compute_cost(obs)
         info["cost"] = cost
+
+        info['cart_vel'] = np.linalg.norm(obs[3])
+        info['pole_angle'] = np.abs(np.arctan2(obs[1], obs[2]))
 
         # print(cost, obs[:2])
         if self.return_cost:
@@ -34,10 +37,12 @@ class SafeCartPoleEnv(Environment):
     def _compute_cost(self, obs):
         theta = np.arctan2(obs[1], obs[2])
 
-        pole_constraint = np.abs(theta) / 1.5707 - 1
+        vel_constraint = np.linalg.norm(obs[3]) - 6.
+
+        pole_constraint = np.abs(theta) / (np.pi / 3) - 1
         # wall_constraint = np.abs(obs[0]) / 5 - 1
         # return np.max(np.append(pole_constraint, wall_constraint))
-        return pole_constraint
+        return np.array([pole_constraint, vel_constraint])
 
 
 if __name__ == '__main__':
