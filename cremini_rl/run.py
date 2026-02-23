@@ -10,7 +10,7 @@ def main():
     # Choices: cartpole, tiago_navigation, planar_air_hockey, planar_air_hockey_vel, dense_ball2d, goal_navigation,
     env = "planar_air_hockey"
     # Choices: sac, td3, datacom_sac, iqn_datacom_sac, safelayer_td3, lag_sac, wc_lag_sac, cbf_sac, baseline-atacom_sac
-    alg = "datacom_sac"
+    alg = "sac"
 
     # Load configs based on the algorithm and environment, there are defaults for each algorithm. They are merged
     # with the environment specific config if it exists.
@@ -34,16 +34,17 @@ def main():
     else:
         debug = False
         use_wandb = True
-        n_seeds = 10
+        n_seeds = 20
         n_exp_in_parallel = 1
 
+    config['record'] = False
     n_record = int(config['record'])
 
     if n_record:
         launcher_record = Launcher(f'{env}_record', f"experiment", n_seeds=n_record, start_seed=0, memory_per_core=10000, n_cores=1,
                         conda_env="d_atacom", hours=24, n_exps_in_parallel=n_record, partition="stud", gres='gpu:rtx2080:1')
     if n_seeds - n_record > 0:
-        launcher = Launcher(env, f"experiment", n_seeds=n_seeds-n_record, start_seed=n_record, memory_per_core=2000, n_cores=1,
+        launcher = Launcher(env, f"experiment", n_seeds=n_seeds-n_record, start_seed=n_record, memory_per_core=3000, n_cores=1,
                         conda_env="d_atacom", hours=24, n_exps_in_parallel=max(n_exp_in_parallel-n_record, 1), partition="stud")
 
     keys = []
@@ -65,7 +66,7 @@ def main():
             wandb_enabled=use_wandb,
             wandb_entity='paolo-magliano',
             wandb_project=f"{env}",
-            wandb_group=f"{alg}_no_scaled_action"
+            wandb_group=f"{alg}_iros"
         )
 
         assert not " " in wandb_options["wandb_group"], "NO SPACE IN GROUP NAME"
@@ -95,3 +96,4 @@ def update_param(config, key, value, value_list):
 
 if __name__ == "__main__":
     main()
+
