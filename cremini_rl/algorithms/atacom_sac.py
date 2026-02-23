@@ -7,11 +7,6 @@ import numpy as np
 
 from scipy.linalg import qr, svd
 
-import sys
-sys.path.append("/home/stud_magliano/projects/atacom_ijrr")
-from atacom.core.utils import smooth_basis as old_smooth_basis
-
-
 class AtacomSACBaseline(SAC):
     def __init__(self, mdp_info, control_system, atacom_lam, atacom_beta, atacom_dc, constraint_func, use_viability,
                  actor_mu_params,
@@ -134,9 +129,10 @@ class AtacomSACBaseline(SAC):
 
         # Discard non-useful constraints thanks to slack variables
         useful_constr = self._directional_constraints(drift, J_G, alpha)
-        J_u = J_u[:, useful_constr.squeeze()][..., np.concatenate((np.ones((alpha.shape[-1]), dtype=bool), useful_constr.squeeze()))]
+        slack[np.logical_not(useful_constr)] = 1e+2
+        J_u_dir = np.concatenate((J_G, self.J_slack(slack)), axis=-1) # J_u[:, useful_constr.squeeze()][..., np.concatenate((np.ones((alpha.shape[-1]), dtype=bool), useful_constr.squeeze()))]
 
-        B_u = batch_smooth_basis(J_u)[..., :alpha.shape[-1]]
+        B_u = batch_smooth_basis(J_u_dir)[..., :alpha.shape[-1]]
 
         tangential_term = (B_u @ alpha[:, None]).squeeze(-1)
         action = tangential_term[..., :alpha.shape[-1]] + b[..., :alpha.shape[-1]]
@@ -145,7 +141,7 @@ class AtacomSACBaseline(SAC):
 
     def _directional_constraints(self, drift, J_G, alpha):
         if self._atacom_dc:
-            constraint_direction = drift + J_G @ alpha
+            constraint_direction = J_G @ alpha
             useful_constr = constraint_direction > 0
         else:
             useful_constr = np.ones(drift.shape, dtype=bool)
