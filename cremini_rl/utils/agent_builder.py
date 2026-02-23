@@ -104,7 +104,7 @@ def build_constraint(control_system, constraint_distribution, learning_rate_cons
     elif constraint_distribution == "gaussian":
         constraint_params = dict(network=GaussianConstraintNetwork,
                                  optimizer={'class': optim.Adam,
-                                            'params': {'lr': learning_rate_constraint}},
+                                            'params': {'lr': learning_rate_constraint, 'weight_decay': 1e-3}},
                                  n_features=list(map(int, n_features_constraint.split(' '))),
                                  input_shape=(control_system.dim_q + control_system.dim_x,),
                                  output_shape=(1, 2),
@@ -245,12 +245,26 @@ def build_sac_params(mdp, n_features_actor, n_features_critic, learning_rate_act
 
     return actor_mu_params, actor_sigma_params, actor_optimizer, critic_params, alg_params
 
+def build_sac(mdp, initial_replay_size, max_replay_size, batch_size, n_features_actor, n_features_critic,
+              learning_rate_actor, learning_rate_critic, use_cuda, tau, lr_alpha, target_entropy, warmup_transitions,
+              **kwargs):
+    actor_mu_params, actor_sigma_params, actor_optimizer, critic_params, alg_params = \
+        build_sac_params(mdp, n_features_actor, n_features_critic, learning_rate_actor, learning_rate_critic,
+                         use_cuda, tau, lr_alpha, target_entropy, warmup_transitions)
+
+    print(alg_params, use_cuda)
+
+    agent = SAC(mdp.info, actor_mu_params, actor_sigma_params, actor_optimizer, critic_params, **alg_params,
+                initial_replay_size=initial_replay_size, max_replay_size=max_replay_size,
+                batch_size=batch_size)
+
+    return agent
 
 def build_datacom_sac(mdp, control_system, initial_replay_size, max_replay_size, batch_size, n_features_actor,
                       n_features_critic, n_features_constraint, learning_rate_actor, learning_rate_critic,
                       accepted_risk, learning_rate_constraint, 
-                      atacom_lam, atacom_beta, use_cuda, tau, lr_alpha, target_entropy, atacom_dc, use_viability,
-                      warmup_transitions, cost_budget, learn_constr, learn_constr_value_function, lr_delta, init_delta, delta_warmup_transitions, **kwargs):
+                      atacom_lam, atacom_beta, use_cuda, tau, lr_alpha, target_entropy, atacom_dc, use_viability, violation_memory_ratio,
+                      warmup_transitions, cost_budget, constr_aggregation, constr_aggregation_value_function, lr_delta, init_delta, delta_warmup_transitions, **kwargs):
     constraint_params = build_constraint(control_system, "gaussian",
                                          learning_rate_constraint, n_features_constraint, use_cuda)
 
@@ -265,9 +279,9 @@ def build_datacom_sac(mdp, control_system, initial_replay_size, max_replay_size,
                        actor_mu_params=actor_mu_params, actor_sigma_params=actor_sigma_params,
                        actor_optimizer=actor_optimizer, critic_params=critic_params, batch_size=batch_size,
                        initial_replay_size=initial_replay_size, max_replay_size=max_replay_size,
-                       cost_budget=cost_budget, constraint_params=constraint_params, learn_constr=learn_constr, learn_constr_value_function=learn_constr_value_function, 
+                       cost_budget=cost_budget, constraint_params=constraint_params, constr_aggregation=constr_aggregation, constr_aggregation_value_function=constr_aggregation_value_function, 
                        atacom_lam=atacom_lam, atacom_beta=atacom_beta, lr_delta=lr_delta, init_delta=init_delta,
-                       delta_warmup_transitions=delta_warmup_transitions, atacom_dc=atacom_dc, use_viability=use_viability, n_constraints=mdp.n_constraints,
+                       delta_warmup_transitions=delta_warmup_transitions, atacom_dc=atacom_dc, use_viability=use_viability, n_learnable_constr=mdp.n_learnable_constr, violation_memory_ratio=violation_memory_ratio,
                        **alg_params)
 
     return agent
