@@ -11,6 +11,7 @@ from cremini_rl.utils.safe_core import SafeCore
 from cremini_rl.dynamics import *
 
 from cremini_rl.utils.agent_builder import agent_builder
+from cremini_rl.algorithms.datacom_sac import constr_aggregation_mapping
 
 from experiment_launcher.decorators import single_experiment
 
@@ -126,17 +127,23 @@ def evaluate(core, n_episodes_test, gamma, quiet, render, record=False):
             ep_idx = 0
             ep_violation_rate = []
             ep_sum_cost = []
+            ep_mean_cost = []
+            ep_max_cost = []
             for ep in episode_length:
                 ep_cost = np.maximum(np.array(v[ep_idx:ep_idx + ep]), 0)
                 ep_violation_rate.append(np.sum(ep_cost > 0) / ep)
                 ep_sum_cost.append(np.sum(ep_cost))
+                ep_mean_cost.append(np.mean(ep_cost))
+                ep_max_cost.append(np.max(ep_cost))
 
                 ep_idx += ep
 
             name = k.removesuffix("cost")
 
-            cost_metrics[f"ep_violation_rate"] = np.mean(ep_violation_rate)
-            cost_metrics[f"{name}ep_cost"] = np.mean(ep_sum_cost)
+            cost_metrics[f"{name}violation_rate"] = np.mean(ep_violation_rate)
+            cost_metrics[f"{name}sum_cost"] = np.mean(ep_sum_cost)
+            cost_metrics[f"{name}mean_cost"] = np.mean(ep_mean_cost)
+            cost_metrics[f"{name}max_cost"] = np.mean(ep_max_cost)
 
     data_dict = dict(J=J, R=R, episode_length=np.mean(episode_length))
 
@@ -157,6 +164,14 @@ def evaluate(core, n_episodes_test, gamma, quiet, render, record=False):
 
     if "joint_vel" in info.keys():
         data_dict["joint_vel"] = np.mean(info["joint_vel"])
+
+    if "cart_vel" in info.keys():
+        data_dict["cart_vel"] = np.mean(info["cart_vel"])
+        data_dict["max_cart_vel"] = np.max(info["cart_vel"])
+
+    if "pole_angle" in info.keys():
+        data_dict["pole_angle"] = np.mean(info["pole_angle"])
+        data_dict["max_pole_angle"] = np.max(info["pole_angle"])
 
     if "success" in info.keys():
         data_dict["success_rate"] = np.sum(info["success"]) / len(episode_length)
@@ -244,8 +259,10 @@ def evaluate(core, n_episodes_test, gamma, quiet, render, record=False):
     if hasattr(core.agent, "_constraint_approximator") and core.agent._constraint_approximator is not None:
         constraint_states, _ = core.agent.to_constraint_state(states, states)
         predicted_cost, _ = core.agent._constraint_approximator.predict(constraint_states)
-        data_dict["cbf_error"] = np.abs(np.concatenate(info['cost']) - predicted_cost).mean()
+        data_dict["cbf_error"] = np.abs(constr_aggregation_mapping[core.agent.constr_aggregation](np.array(info['cost']), axis=1).flatten() - predicted_cost).mean()
         
+        data_dict["wheight_norm"] = np.linalg.norm(np.array([np.linalg.norm(p.detach().numpy()) for p in core.agent._constraint_approximator.model.network.parameters()]))
+
         if hasattr(core.agent, "_num_quantile_samples"):
             constraint_init_states, _ = core.agent.to_constraint_state(init_states, init_states)
             tau = torch.ones(constraint_init_states.shape[0], 1) - core.agent.policy.accepted_risk()
@@ -269,8 +286,17 @@ def evaluate(core, n_episodes_test, gamma, quiet, render, record=False):
         constraint_states, next_constraint_states = core.agent.to_constraint_state(states, next_states)
         predicted_cost, _ = core.agent._constraint_value_function_approximator.predict(constraint_states)
         predicted_next_cost, _ = core.agent._constraint_value_function_approximator.predict(next_constraint_states)
-        max_index = (np.arange(len(info['cost'])), np.array(info['cost']).argmax(axis=1)) 
-        true_cost = np.array(info['cost'])[max_index] + (1 - np.array(absorbing)[max_index]) * gamma * predicted_next_cost
+
+        data_dict["wheight_norm_value_function"] = np.linalg.norm(np.array([np.linalg.norm(p.detach().numpy()) for p in core.agent._constraint_value_function_approximator.model.network.parameters()]))
+
+        constr_aggregation = constr_aggregation_mapping[core.agent.constr_aggregation_value_function](np.array(info['cost']), axis=1)
+        if np.array(info['cost']).shape == constr_aggregation.shape:
+            absorbing_aggregation = np.array(absorbing)
+        else:
+            aggregation_index = np.where(np.array(info['cost']) == constr_aggregation[:, None])
+            absorbing_aggregation = np.array(absorbing)[aggregation_index]
+
+        true_cost = constr_aggregation.flatten() + (1 - absorbing_aggregation.flatten()) * gamma * predicted_next_cost
         data_dict["cbf_error_value_function"] = np.abs(true_cost - predicted_cost).mean()
 
         if hasattr(core.agent, "_num_quantile_samples"):
@@ -484,8 +510,9 @@ def parse_args():
     arg_exp.add_argument("--lr_delta", type=float)
     arg_exp.add_argument("--init_delta", type=float)
     arg_exp.add_argument("--delta_warmup_transitions", type=int)
-    arg_exp.add_argument("--learn_constr", type=lambda x: x.lower() == "true")
-    arg_exp.add_argument("--learn_constr_value_function", type=lambda x: x.lower() == "true")
+    arg_exp.add_argument("--constr_aggregation", type=str)
+    arg_exp.add_argument("--constr_aggregation_value_function", type=str)
+    arg_exp.add_argument("--violation_memory_ratio", type=float)
 
     # IQN
     arg_exp.add_argument("--quantile_embedding_dim", type=int)
