@@ -55,8 +55,8 @@ def plot_learning_curve(grouped_runs, metric_key, title, xlabel, ylabel, steps_p
     # Spring Pastels from https://www.heavy.ai/blog/12-color-palettes-for-telling-better-stories-with-your-data
 
     plt.rcParams["font.size"] = 55
-    plt.rcParams["font.family"] = "sans-serif"
-    plt.rcParams["font.sans-serif"] = "Times New Roman"
+    plt.rcParams["font.family"] = "serif"
+    plt.rcParams["font.serif"] = ["DejaVu Serif"]
     plt.rcParams["mathtext.fontset"] = "cm"
     plt.rcParams['axes.linewidth'] = 2
 
@@ -70,8 +70,8 @@ def plot_learning_curve(grouped_runs, metric_key, title, xlabel, ylabel, steps_p
 
         mean, interval = get_mean_and_confidence(metric_df.transpose())
 
-        mean = mean[:100]
-        interval = interval[:100]
+        mean = mean
+        interval = interval
 
         if smooth_weight is not None:
             mean = np.array(smooth(mean, smooth_weight))
@@ -95,7 +95,7 @@ def plot_learning_curve(grouped_runs, metric_key, title, xlabel, ylabel, steps_p
         #         "atacom_sac_model_miss_0.1_88a16eff42f0d896af418b577dc45234dd4fb21b": "0.1",
         #         "atacom_sac_fill_up_1145e0587f424822aedbf9ed683748dec3297361": "0"}
 
-        plt.plot(x, mean, label=f"$\sigma$={temp[group_key]}", color=COLOR_PALETTE[color_idx], linewidth=linewidth)
+        plt.plot(x, mean, label=f"{group_key}", color=COLOR_PALETTE[color_idx], linewidth=linewidth)
         plt.fill_between(x, mean - interval, mean +
                          interval, alpha=0.2, color=COLOR_PALETTE[color_idx])
         color_idx += 1
@@ -123,7 +123,7 @@ def plot_learning_curve(grouped_runs, metric_key, title, xlabel, ylabel, steps_p
                                interval, alpha=0.2, color=COLOR_PALETTE[color_idx])
             color_idx += 1
 
-        axins.set_xlim(0.5e6, 1e6)
+        axins.set_xlim(0.5e6, 2e6)
         if metric_key == "sum_cost":
             axins.set_ylim(-0.1, 2)
         else:
@@ -137,19 +137,19 @@ def plot_learning_curve(grouped_runs, metric_key, title, xlabel, ylabel, steps_p
     if save_dir is not None:
         plt.savefig(save_dir + f"/{ylabel}.pdf", dpi=1000)
 
-    handles, labels = plt.gca().get_legend_handles_labels()
-    # order = [0, 3, 1, 2, 5]
-    order = [0, 2, 5, 4, 1, 3]
-    leg = plt.legend([handles[idx] for idx in order], [labels[idx] for idx in order], ncol=6, loc='center left',
-                     bbox_to_anchor=(1, 0.5), frameon=False)
+    # handles, labels = plt.gca().get_legend_handles_labels()
+    # # order = [0, 3, 1, 2, 5]
+    # order = [0, 2, 5, 4, 1, 3]
+    # leg = plt.legend([handles[idx] for idx in order], [labels[idx] for idx in order], ncol=6, loc='center left',
+    #                  bbox_to_anchor=(1, 0.5), frameon=False)
 
-    # leg = plt.legend(ncol=6, loc='center left', bbox_to_anchor=(1, 0.5), frameon=False)
-    leg_lines = leg.get_lines()
-    plt.setp(leg_lines, linewidth=linewidth + 2)
+    leg = plt.legend(ncol=6, loc='center left', bbox_to_anchor=(1, 0.5), frameon=False)
+    # leg_lines = leg.get_lines()
+    # plt.setp(leg_lines, linewidth=linewidth + 2)
 
     export_legend(leg, filename=os.path.join(save_dir, "legend.pdf"))
 
-    plt.show()
+    # plt.show()
 
 
 def export_legend(legend, filename="legend.png"):
@@ -178,7 +178,7 @@ def download_run_history(entity, project, save_path, samples, filters):
             run_hist["success"] = 0
 
         try:
-            run_hist = run_hist[["J", "R", "episode_length", "max_violation", "sum_cost", "delta"]]
+            run_hist = run_hist[["J", "R", "episode_length"]] # , "max_violation", "sum_cost", "delta"]]
 
             run_hist.to_csv(f"{save_path}/{run.id}.csv", index=False)
         except:
@@ -209,7 +209,7 @@ def group_run_histories_by_key(entity, project, save_path, group_key, filters):
                 metrics[key][group_key_val] = pd.DataFrame()
 
             # Only take 10 seeds for ablation studies
-            if run.state == "finished" and metrics[key][group_key_val].shape[1] < 10:
+            if run.state == "finished": # and metrics[key][group_key_val].shape[1] < 10:
                 metrics[key][group_key_val][run.id] = hist[key]
     return metrics
 
@@ -232,3 +232,26 @@ def plot_air_hockey_constraint(agent):
     joint_pos = []
 
     pass
+
+if __name__ == '__main__':
+    entity = "paolo-magliano"
+    project = "planar_air_hockey"
+    name = "iros_planar_air_hockey"
+
+    data_path, plot_path = make_path(project, name)
+
+    # filters = {
+    #     "group": {"$regex": "iros"},
+    # }
+
+    filters = {
+        "group": {"$in": ["baseline-atacom_sac_iros", "baseline-atacom_sac_dc_iros"]},
+        "state": "finished"   # optional but recommended
+    }
+
+    download_run_history(entity, project, data_path, samples=1000, filters=filters)
+
+    metrics = group_run_histories_by_key(entity, project, data_path, group_key=["group"], filters=filters)
+
+    plot_learning_curve(metrics, "R", "IROS Return", "Steps", "Return", steps_per_epoch=10000, save_dir=plot_path, smooth_weight=None)
+    # plot_learning_curve(metrics, "sum_cost", "Cost", "Steps", "Cost", steps_per_epoch=10000, save_dir=plot_path)
