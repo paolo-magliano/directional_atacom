@@ -131,6 +131,8 @@ def evaluate(core, n_episodes_test, gamma, quiet, render, record=False):
             ep_max_cost = []
             for ep in episode_length:
                 ep_cost = np.maximum(np.array(v[ep_idx:ep_idx + ep]), 0)
+                if ep_cost.ndim >= 2:
+                    ep_cost = np.max(ep_cost, axis=1)
                 ep_violation_rate.append(np.sum(ep_cost > 0) / ep)
                 ep_sum_cost.append(np.sum(ep_cost))
                 ep_mean_cost.append(np.mean(ep_cost))
