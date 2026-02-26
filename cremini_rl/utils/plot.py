@@ -8,6 +8,7 @@ from mpl_toolkits.axes_grid1.inset_locator import zoomed_inset_axes, mark_inset,
 import matplotlib.ticker as ticker
 import numpy as np
 import pandas as pd
+import re
 
 # # Spring Pastels from https://www.heavy.ai/blog/12-color-palettes-for-telling-better-stories-with-your-data
 COLOR_PALETTE = ["#fd7f6f", "#bd7ebe", "#3293db", "#7cc202", "#04a777", "#ffb55a", "#bd7ebe", "#3f423e"]
@@ -142,7 +143,7 @@ def plot_learning_curve(grouped_runs, metric_key, title, xlabel, ylabel, steps_p
     if save_dir is not None:
         # plt.savefig(save_dir + f"/{ylabel}.pdf", dpi=1000)
         plt.legend()
-        plt.savefig(save_dir + f"/{ylabel}.png")
+        plt.savefig(save_dir + f"/{title}.png")
 
     # handles, labels = plt.gca().get_legend_handles_labels()
     # # order = [0, 3, 1, 2, 5]
@@ -158,6 +159,117 @@ def plot_learning_curve(grouped_runs, metric_key, title, xlabel, ylabel, steps_p
 
     # plt.show()
 
+def plot_hp(grouped_runs, title, xlabel, ylabel, save_dir=None, linewidth=8, smooth_weight=None):
+    # Spring Pastels from https://www.heavy.ai/blog/12-color-palettes-for-telling-better-stories-with-your-data
+
+    plt.rcParams["font.size"] = 24 # 55
+    plt.rcParams["font.family"] = "serif"
+    plt.rcParams["font.serif"] = ["DejaVu Serif"]
+    # plt.rcParams["mathtext.fontset"] = "cm"
+    # plt.rcParams['axes.linewidth'] = 2
+
+    plt.figure(figsize=(16, 10))
+    color_idx = 0
+
+    # names = ["no decay", "decay=$0.97^{epoch}$", "decay=$0.98^{epoch}$"]
+    for group_key in sorted(grouped_runs['performance'].keys()):
+        performance_metric_df = grouped_runs['performance'][group_key]
+        safety_metric_df = grouped_runs['safety'][group_key]
+
+        performance_mean, performance_interval = get_mean_and_confidence(performance_metric_df)
+        safety_mean, safety_interval = get_mean_and_confidence(safety_metric_df)
+
+        if smooth_weight is not None:
+            performance_mean = np.array(smooth(performance_mean, smooth_weight))
+            performance_interval = np.array(smooth(performance_interval, smooth_weight))
+
+            safety_mean = np.array(smooth(safety_mean, smooth_weight))
+            safety_interval = np.array(smooth(safety_interval, smooth_weight))
+
+
+
+        group_label = group_key.replace("r3", "").replace("iros", "").replace("tmp", "").replace("_", " ").title()
+
+        plt.plot(safety_mean, performance_mean, color=COLOR_PALETTE[color_idx], linewidth=linewidth, alpha=0.7)
+        plt.scatter(
+            safety_mean, performance_mean,
+            color=COLOR_PALETTE[color_idx],
+            s=500, 
+            zorder=3,
+            label=group_label,
+            alpha=0.7
+        )
+        
+        # plt.fill_between(x, mean - interval, mean +
+        #                  interval, alpha=0.2, color=COLOR_PALETTE[color_idx], label="_nolegend_")
+        color_idx += 1
+
+    ax = plt.gca()
+    ax.margins(x=0.1)
+    ymin, ymax = ax.get_ylim()
+    y_thresh = 0.02 * (ymax - ymin)   # 2% of axis range
+
+    base_dx = 20
+    dx = base_dx
+
+    for group_key in sorted(grouped_runs['performance'].keys()):
+        performance_metric_df = grouped_runs['performance'][group_key]
+        safety_metric_df = grouped_runs['safety'][group_key]
+
+        performance_mean, performance_interval = get_mean_and_confidence(performance_metric_df)
+        safety_mean, safety_interval = get_mean_and_confidence(safety_metric_df)
+
+        if smooth_weight is not None:
+            performance_mean = np.array(smooth(performance_mean, smooth_weight))
+            performance_interval = np.array(smooth(performance_interval, smooth_weight))
+
+            safety_mean = np.array(smooth(safety_mean, smooth_weight))
+            safety_interval = np.array(smooth(safety_interval, smooth_weight))
+
+
+        for i, (x, y, label) in enumerate(zip(safety_mean, performance_mean, safety_mean.index)):
+
+            # check closeness in performance (y) to neighbors
+            close = False
+            if i > 0 and abs(performance_mean.iloc[i] - performance_mean.iloc[i-1]) < y_thresh:
+                close = True
+            if i < len(performance_mean) - 1 and abs(performance_mean.iloc[i] - performance_mean.iloc[i+1]) < y_thresh:
+                close = True
+
+            # only change dx when too close
+            if close:
+                dx = -dx   # flip side (alternates left/right through a cluster)
+            else:
+                dx = base_dx  # reset when not close
+
+            plt.annotate(
+                f"{label}",
+                (x, y),
+                textcoords="offset points",
+                xytext=(dx, 0),
+                ha="left" if dx > 0 else "right",
+                va="center",
+                fontsize=24,
+            )
+
+
+    plt.xlabel(xlabel)
+    plt.ylabel(ylabel)
+    # leg = plt.legend(ncol=3)
+    plt.title(title)
+    if "log" in ylabel.lower():
+        plt.yscale("log")
+    # leg_lines = leg.get_lines()
+    # plt.setp(leg_lines, linewidth=linewidth)
+    plt.tight_layout()
+    ax = plt.gca()
+    ax.tick_params('both', length=20, width=4, which='major')
+    ax.tick_params('both', length=10, width=2, which='minor')
+
+    if save_dir is not None:
+        # plt.savefig(save_dir + f"/{ylabel}.pdf", dpi=1000)
+        plt.legend()
+        plt.savefig(save_dir + f"/{title}.png")
 
 def export_legend(legend, filename="legend.png"):
     fig = legend.figure
@@ -212,11 +324,12 @@ def download_run_history(entity, project, save_path, samples, filters):
             print(f"Failed to save {run.group} {run.id}")
 
 
-def group_run_histories_by_key(entity, project, save_path, group_key, filters):
+def group_run_histories_by_key(entity, project, save_path, group_key, filters, key_performance_metric=None, key_safety_metric=None):
     api = wandb.Api()
     runs = api.runs(f"{entity}/{project}", filters=filters)
 
     metrics = {}
+    run_metrics = {}
     for run in runs:
         hist = pd.read_csv(f"{save_path}/{run.id}.csv")
         temp = run.config
@@ -231,15 +344,54 @@ def group_run_histories_by_key(entity, project, save_path, group_key, filters):
         for key in hist.keys():
             if key not in metrics:
                 metrics[key] = {}
+                run_metrics[key] = {
+                    'last': {},
+                    'mean': {}
+                }
 
             if group_key_val not in metrics[key]:
                 metrics[key][group_key_val] = pd.DataFrame()
+                run_metrics[key]['last'][group_key_val] = pd.Series(dtype=float)
+                run_metrics[key]['mean'][group_key_val] = pd.Series(dtype=float)
 
             # Only take 10 seeds for ablation studies
             if run.state == "finished": # and metrics[key][group_key_val].shape[1] < 10:
                 metrics[key][group_key_val][run.id] = hist[key]
-    return metrics
+                if  run_metrics[key]['last'][group_key_val].shape[-1] < 5:
+                    run_metrics[key]['last'][group_key_val].at[run.id] = hist[key].tail(10).mean()
+                    run_metrics[key]['mean'][group_key_val].at[run.id] = hist[key].mean()
+        
+    return metrics, run_metrics
 
+def process_run_metrics(run_metrics, method, hp, performance_metric_key, safety_metric_key):
+    metrics = {
+        'performance': {},
+        'safety': {}
+    }
+
+    for group_key in sorted(run_metrics[performance_metric_key]['last'].keys()):      
+        match = re.search(rf"{hp}_([0-9.]+)", group_key)
+        hp_value = float(match.group(1)) if match else None
+
+        if method in group_key:
+            method_key = method
+        else:
+            method_key = "not_" + method
+
+        if method_key not in metrics['performance']:
+            metrics['performance'][method_key] = pd.DataFrame()
+            metrics['safety'][method_key] = pd.DataFrame()
+        
+        if group_key not in run_metrics[performance_metric_key]['last'].keys() or group_key not in run_metrics[safety_metric_key]['mean'].keys():
+            continue
+
+        performance_df = run_metrics[performance_metric_key]['last'][group_key].to_frame(name=hp_value).reset_index(drop=True)
+        safety_df = run_metrics[safety_metric_key]['mean'][group_key].to_frame(name=hp_value).reset_index(drop=True)
+
+        metrics['performance'][method_key] = pd.concat([metrics['performance'][method_key], performance_df], axis=1).sort_index(axis=1)
+        metrics['safety'][method_key] = pd.concat([metrics['safety'][method_key], safety_df], axis=1).sort_index(axis=1)
+        
+    return metrics
 
 def make_path(project, name):
     data_path = os.path.join("data", project, name)
@@ -263,43 +415,72 @@ def plot_air_hockey_constraint(agent):
 if __name__ == '__main__':
     entity = "paolo-magliano"
     project = "quadrotor_traj"
-    name = "sac_vs_dc"
+    name = "beta"
 
     data_path, plot_path = make_path(project, name)
 
     filters = {
         "$and": [
             {"group": {"$regex": "iros"}},
+            # {"group": {"$regex": "-atacom"}},
+            {"$nor": [
+                {"group": {"$regex": "beta_1\.75"}}
+            ]},
+            {"group": {"$regex": "beta_"}},
+            # {"$or": [
+            #     {"group": {"$regex": "beta_"}},
+            #     {"group": {"$regex": "beta_3"}},
+                # {"group": {"$regex": "beta_1$"}}
+            # ]},
             {"$or": [
-                {"group": {"$regex": "^sac_iros"}},
-                {"group": {"$regex": "^atacom_sac_dc"}}
+                # {"group": {"$regex": "cbf"}},
+                # {"group": {"$regex": "^sac_iros"}},
+                {"group": {"$regex": "atacom_sac"}}
             ]},
         ]
     }
 
     download_run_history(entity, project, data_path, samples=1000, filters=filters)
 
-    metrics = group_run_histories_by_key(entity, project, data_path, group_key=["group"], filters=filters)
+    metrics, run_metrics = group_run_histories_by_key(entity, project, data_path, group_key=["group"], filters=filters)
 
-    plot_learning_curve(metrics, "R", "Return", "Steps", "Return", steps_per_epoch=10000, save_dir=plot_path, smooth_weight=None)
-    plot_learning_curve(metrics, "J", "Discounted Return", "Steps", "Discounted return", steps_per_epoch=10000, save_dir=plot_path, smooth_weight=None)
-    plot_learning_curve(metrics, "episode_length", "Length of episodes", "Steps", "Espisode length", steps_per_epoch=10000, save_dir=plot_path, smooth_weight=None)
+    # plot_learning_curve(metrics, "R", "Return", "Steps", "Return", steps_per_epoch=10000, save_dir=plot_path, smooth_weight=None)
+    # plot_learning_curve(metrics, "J", "Discounted Return", "Steps", "Discounted return", steps_per_epoch=10000, save_dir=plot_path, smooth_weight=None)
+    # plot_learning_curve(metrics, "episode_length", "Length of episodes", "Steps", "Espisode length", steps_per_epoch=10000, save_dir=plot_path, smooth_weight=None)
     
-    if "sum_cost" in metrics.keys():
-        plot_learning_curve(metrics, "sum_cost", "Total episodic cost", "Steps", "Total cost", steps_per_epoch=10000, save_dir=plot_path, smooth_weight=None) 
+    # if "sum_cost" in metrics.keys():
+    #     plot_learning_curve(metrics, "sum_cost", "Total episodic cost", "Steps", "Total cost", steps_per_epoch=10000, save_dir=plot_path, smooth_weight=None) 
 
-    if "violation_rate" in metrics.keys():
-        plot_learning_curve(metrics, "violation_rate", "Violation rate", "Steps", "Violation rate", steps_per_epoch=10000, save_dir=plot_path, smooth_weight=None)
+    # if "violation_rate" in metrics.keys():
+    #     plot_learning_curve(metrics, "violation_rate", "Violation rate", "Steps", "Violation rate", steps_per_epoch=10000, save_dir=plot_path, smooth_weight=None)
 
-    if "max_cost" in metrics.keys():
-        plot_learning_curve(metrics, "max_cost", "Maximum episodic violation", "Steps", "Max violation", steps_per_epoch=10000, save_dir=plot_path, smooth_weight=None)
+    # if "max_cost" in metrics.keys():
+    #     plot_learning_curve(metrics, "max_cost", "Maximum episodic violation", "Steps", "Max violation", steps_per_epoch=10000, save_dir=plot_path, smooth_weight=None)
     
+    # if "quadrotor" in project:
+    #     plot_learning_curve(metrics, "dist_to_target", "Distance from target", "Steps", "Log target distance", steps_per_epoch=10000, save_dir=plot_path, smooth_weight=None)
+
+    # if "hockey" in project:
+    #     plot_learning_curve(metrics, "success_rate", "Success rate of goal", "Steps", "Success rate", steps_per_epoch=10000, save_dir=plot_path, smooth_weight=None)
+    #     plot_learning_curve(metrics, "puck_vel", "Puck velocity", "Steps", "Puck velocity", steps_per_epoch=10000, save_dir=plot_path, smooth_weight=None)
+
+    performance_metrics = ["R", "J"]
+    safety_metrics = ["sum_cost", "max_cost", "violation_rate"]
+
     if "quadrotor" in project:
-        plot_learning_curve(metrics, "dist_to_target", "Distance from target", "Steps", "Log target distance", steps_per_epoch=10000, save_dir=plot_path, smooth_weight=None)
+        performance_metrics.append("dist_to_target")
+    else:
+        performance_metrics.append("puck_vel")
+        performance_metrics.append("success_rate")
 
-    if "hockey" in project:
-        plot_learning_curve(metrics, "success_rate", "Success rate of goal", "Steps", "Success rate", steps_per_epoch=10000, save_dir=plot_path, smooth_weight=None)
-        plot_learning_curve(metrics, "puck_vel", "Puck velocity", "Steps", "Puck velocity", steps_per_epoch=10000, save_dir=plot_path, smooth_weight=None)
+    for p_metric in performance_metrics:
+        path = plot_path + "/" + p_metric
+        if not os.path.exists(path):
+            os.makedirs(path)
+        for s_metric in safety_metrics:
+            hp_metrics = process_run_metrics(run_metrics, "dc", "beta", p_metric, s_metric)
+            plot_hp(hp_metrics, f'Beta {s_metric.replace("_", " ").title()}', s_metric.replace("_", " ").title(), p_metric.replace("_", " ").title(), save_dir=path)
+
 
 
     # plot_learning_curve(metrics, "sum_cost", "Cost", "Steps", "Cost", steps_per_epoch=10000, save_dir=plot_path)
