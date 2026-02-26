@@ -1,21 +1,27 @@
-# Handling Long-Term Safety and Uncertainty in Safe Reinforcement Learning
+# Directional Atacom
 
-Code for the [paper](https://arxiv.org/abs/2409.12045) Handling Long-Term Safety and Uncertainty in Safe Reinforcement Learning. 
+## Setup
+Clone the project repository and the dependecies
+```python
+git clone https://github.com/paolo-magliano/directional_atacom.git
+git clone --branch qualifying --single-branch https://github.com/AirHockeyChallenge/air_hockey_challenge.git
 
-<p align="center">
-<img src=figs/air_hockey.gif height="280">
-<img src=figs/fvf.gif height="280" width="280">
-</p>
+```
+
+Install the requirements
+```
+cd air_hockey_challenge
+pip install -e .
+cd ../directional_atacom
+pip install -r requirement.txt
+
+```
 
 ## Usage
-We use the [uv package manager](https://docs.astral.sh/uv/getting-started/installation/). If you don't want to use `uv` we provide a `requirements.txt` for manual installation. 
-```python
-git clone https://github.com/cube1324/d-atacom.git
-cd d-atacom/cremini_rl
-```
 To train D-ATACOM on the Planar Air Hockey environment run:
 ```python
-uv run run.py
+cd cremini_rl
+python run.py
 ```
 To use different environments or algorithms, modify the `run.py` file. 
 The package cremini_rl is based on the [mushroom_rl](https://github.com/MushroomRL/mushroom-rl) framework and contains the implementation of D-ATACOM as well as several Safe RL baselines. 
@@ -27,14 +33,4 @@ The environment should be a subclass of `mushroom_rl.core.Environment`. The envi
 
 For `D-ATACOM`, `IQN-ATACOM`, `CBF-SAC` the dynamics of the agent are also required. They should be a subclass of `cremini_rl.dynamics.dynamics.ControlAffineSystem`.  
 
-## References
-If you find this code useful in your research, please consider citing:
-```bibtxt
-@inproceedings{gunster2024handling,
-  title={Handling Long-Term Safety and Uncertainty in Safe Reinforcement Learning},
-  author={G{"u}nster, Jonas and Liu, Puze and Peters, Jan and Tateo, Davide},
-  booktitle={Conference on Robot Learning},
-  year={2024},
-}
-```
 
