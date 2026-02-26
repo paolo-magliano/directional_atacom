@@ -104,7 +104,7 @@ def build_constraint(control_system, constraint_distribution, learning_rate_cons
     elif constraint_distribution == "gaussian":
         constraint_params = dict(network=GaussianConstraintNetwork,
                                  optimizer={'class': optim.Adam,
-                                            'params': {'lr': learning_rate_constraint, 'weight_decay': 1e-3}},
+                                            'params': {'lr': learning_rate_constraint}},
                                  n_features=list(map(int, n_features_constraint.split(' '))),
                                  input_shape=(control_system.dim_q + control_system.dim_x,),
                                  output_shape=(1, 2),

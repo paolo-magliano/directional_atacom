@@ -529,6 +529,7 @@ class DatacomSAC(DeepAC):
             else:
                 constr_shape = 1
             constraint_params["output_shape"] = (constr_shape, 2)
+            constraint_params["optimizer"]["params"]["weight_decay"] = 1e-3
             target_constraint_params = deepcopy(constraint_params)
             self._constraint_approximator = Regressor(TorchApproximator, **constraint_params)
             self._target_constraint_approximator = Regressor(TorchApproximator, **target_constraint_params)
@@ -546,7 +547,6 @@ class DatacomSAC(DeepAC):
                 constr_shape = 1
             constraint_value_function_params["output_shape"] = (constr_shape, 2)
             constraint_value_function_params["output_mod"] = torch.nn.Softplus()
-            constraint_value_function_params["optimizer"]["params"]["weight_decay"] = 1e-3
             target_constraint_value_function_params = deepcopy(constraint_value_function_params)
 
             self._constraint_value_function_approximator = Regressor(TorchApproximator, **constraint_value_function_params)
