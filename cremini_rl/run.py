@@ -40,11 +40,13 @@ def main():
     config['record'] = False
     n_record = int(config['record'])
 
+    start_seed=0
+
     if n_record:
-        launcher_record = Launcher(f'{env}_record', f"experiment", n_seeds=n_record, start_seed=0, memory_per_core=10000, n_cores=1,
+        launcher_record = Launcher(f'{env}_record', f"experiment", n_seeds=n_record, start_seed=start_seed, memory_per_core=10000, n_cores=1,
                         conda_env="d_atacom", hours=24, n_exps_in_parallel=n_record, partition="stud", gres='gpu:rtx2080:1')
     if n_seeds - n_record > 0:
-        launcher = Launcher(env, f"experiment", n_seeds=n_seeds-n_record, start_seed=n_record, memory_per_core=3000, n_cores=1,
+        launcher = Launcher(env, f"experiment", n_seeds=n_seeds-n_record, start_seed=start_seed+n_record, memory_per_core=3000, n_cores=1,
                         conda_env="d_atacom", hours=24, n_exps_in_parallel=max(n_exp_in_parallel-n_record, 1), partition="stud")
 
     keys = []
@@ -66,7 +68,7 @@ def main():
             wandb_enabled=use_wandb,
             wandb_entity='paolo-magliano',
             wandb_project=f"{env}",
-            wandb_group=f"{alg}_iros"
+            wandb_group=f"{alg}_iros_auto_beta_0.5"
         )
 
         assert not " " in wandb_options["wandb_group"], "NO SPACE IN GROUP NAME"
