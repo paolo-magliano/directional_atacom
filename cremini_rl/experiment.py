@@ -512,6 +512,7 @@ def parse_args():
     arg_exp.add_argument("--lr_delta", type=float)
     arg_exp.add_argument("--init_delta", type=float)
     arg_exp.add_argument("--delta_warmup_transitions", type=int)
+    arg_exp.add_argument("--constraint_weight_decay", type=float)
     arg_exp.add_argument("--constr_aggregation", type=str)
     arg_exp.add_argument("--constr_aggregation_value_function", type=str)
     arg_exp.add_argument("--violation_memory_ratio", type=float)

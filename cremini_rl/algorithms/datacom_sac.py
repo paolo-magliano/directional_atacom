@@ -449,7 +449,7 @@ class DatacomSAC(DeepAC):
     def __init__(self, mdp_info, control_system, accepted_risk, actor_mu_params, actor_sigma_params, actor_optimizer,
                  critic_params, batch_size, initial_replay_size, max_replay_size, warmup_transitions, tau, lr_alpha,
                  cost_budget, constraint_params, constr_aggregation, constr_aggregation_value_function, atacom_lam, atacom_beta, lr_delta, init_delta, atacom_dc, use_viability, n_learnable_constr,
-                 delta_warmup_transitions, violation_memory_ratio, analytical_constraint=None,
+                 delta_warmup_transitions, violation_memory_ratio, analytical_constraint=None, constraint_weight_decay=None,
                  use_log_alpha_loss=False, log_std_min=-20, log_std_max=2, target_entropy=None, critic_fit_params=None):
         """
         Constructor.
@@ -529,7 +529,8 @@ class DatacomSAC(DeepAC):
             else:
                 constr_shape = 1
             constraint_params["output_shape"] = (constr_shape, 2)
-            constraint_params["optimizer"]["params"]["weight_decay"] = 1e-3
+            if constraint_weight_decay and constraint_weight_decay > 0:
+                constraint_params["optimizer"]["params"]["weight_decay"] = constraint_weight_decay
             target_constraint_params = deepcopy(constraint_params)
             self._constraint_approximator = Regressor(TorchApproximator, **constraint_params)
             self._target_constraint_approximator = Regressor(TorchApproximator, **target_constraint_params)

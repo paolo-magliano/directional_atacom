@@ -30,6 +30,7 @@ n_episodes_test: 25
 init_delta: 3
 lr_delta: 0.05
 delta_warmup_transitions: 50000
+constraint_weight_decay: 1.e-3
 
 use_viability: True
 

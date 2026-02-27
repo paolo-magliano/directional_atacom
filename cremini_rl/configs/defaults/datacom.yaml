@@ -17,6 +17,7 @@ cost_budget: 5
 init_delta: 1
 lr_delta: 0.1
 delta_warmup_transitions: 50000
+constraint_weight_decay: -1 # disable
 
 constr_aggregation: 'none' # none, array, max
 constr_aggregation_value_function: 'max' # none, array, max
