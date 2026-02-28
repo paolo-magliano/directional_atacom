@@ -212,13 +212,13 @@ class DatacomSACPolicy(Policy):
             # Transform to viability constraint
             cons = cons + self.K * (J_k_viability @ q_dot).squeeze(2)
 
-            q_delta = q.copy()
-            q_delta[:, :state_dim] += q_delta[:, state_dim:] * self.derivation_step_size
-            _, J_k_delta, _ = self.compute_constraint_and_grad(q_delta, x)
-            J_k_viability_delta = J_k_delta[..., :state_dim]
-            J_k_dot = (J_k_viability_delta - J_k_viability) / self.derivation_step_size
+            # q_delta = q.copy()
+            # q_delta[:, :state_dim] += q_delta[:, state_dim:] * self.derivation_step_size
+            # _, J_k_delta, _ = self.compute_constraint_and_grad(q_delta, x)
+            # J_k_viability_delta = J_k_delta[..., :state_dim]
+            # J_k_dot = (J_k_viability_delta - J_k_viability) / self.derivation_step_size
 
-            drift += (J_k_viability + J_k_dot) @ q_dot
+            # drift += (J_k_viability + J_k_dot) @ q_dot
 
         lam = self._atacom_lam()
 
