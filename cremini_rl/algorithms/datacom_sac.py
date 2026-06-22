@@ -37,7 +37,7 @@ class DatacomSACPolicy(Policy):
     """
 
     def __init__(self, mu_approximator, sigma_approximator, constraint_value_function_approximator, constraint_approximator, control_system, mdp_info,
-                 accepted_risk, delta, delta_value_function, atacom_lam, atacom_beta, target_entropy, min_a, max_a, log_std_min, log_std_max, atacom_dc, use_viability,
+                 accepted_risk, delta, delta_value_function, slack_limit, atacom_lam, atacom_beta, target_entropy, min_a, max_a, log_std_min, log_std_max, atacom_dc, use_viability,
                  analytical_const=None):
         """
         Constructor.
@@ -82,6 +82,7 @@ class DatacomSACPolicy(Policy):
         self._constraint_value_function_approximator = constraint_value_function_approximator
         self._constraint_approximator = constraint_approximator
 
+        self._slack_limit = slack_limit
         # ATACOM gain for error correction
         self._atacom_lam = to_parameter(atacom_lam)
         # ATACOM shape of slack function (how close to the constraint the agent is allowed)
@@ -123,14 +124,25 @@ class DatacomSACPolicy(Policy):
             _numeric_eps='primitive',
             _control_system='mushroom',
             # _cbf_scale='primitive',
+            _slack_limit='primitive',
             _atacom_lam='mushroom',
             _atacom_beta='mushroom',
             _margin='primitive',
+            _use_viability='primitive',
+            _atacom_dc='primitive'
         )
 
     def draw_action(self, state):
-        action = self.compute_action_and_log_prob_t(np.atleast_2d(state), return_log_prob=False)
+        action = self.compute_action_and_log_prob_t(np.atleast_2d(self._preprocess(state.copy())), return_log_prob=False)
         return action.detach().cpu().numpy()
+
+    def _preprocess(self, state):
+        for p in self.preprocessors:
+            if state.ndim == 2:
+                state = np.array([p(s.copy()) for s in state])
+            else:
+                state = p(state)
+        return state
 
     def apply_atacom(self, alpha, state):
         alpha_clipped = torch.clamp(alpha, -1, 1)
@@ -153,7 +165,7 @@ class DatacomSACPolicy(Policy):
 
     def J_slack(self, slack):
         out = np.zeros(slack.shape + (slack.shape[1],))
-        np.einsum('ijj->ij', out)[:] = 1 / np.maximum(np.exp(-self._atacom_beta() * slack), 1e-5) - 1
+        np.einsum('ijj->ij', out)[:] = self._slack_limit * (1 / np.maximum(np.exp(-self._atacom_beta() * slack), 1e-5) - 1)
 
         return out
 
@@ -254,7 +266,7 @@ class DatacomSACPolicy(Policy):
 
         b = -uncontrollable - drift_compensation - contraction_term
 
-        # CAST ABACK TO TORCH
+        # CAST BACK TO TORCH
         return torch.from_numpy(B_u).to(self.device), torch.from_numpy(b).to(self.device)
 
     def compute_constraint_and_grad(self, q, x):
@@ -448,7 +460,7 @@ class DatacomSAC(DeepAC):
 
     def __init__(self, mdp_info, control_system, accepted_risk, actor_mu_params, actor_sigma_params, actor_optimizer,
                  critic_params, batch_size, initial_replay_size, max_replay_size, warmup_transitions, tau, lr_alpha,
-                 cost_budget, constraint_params, constr_aggregation, constr_aggregation_value_function, atacom_lam, atacom_beta, lr_delta, init_delta, atacom_dc, use_viability, n_learnable_constr,
+                 cost_budget, constraint_params, constr_aggregation, constr_aggregation_value_function, slack_limit, atacom_lam, atacom_beta, lr_delta, init_delta, atacom_dc, use_viability, n_learnable_constr,
                  delta_warmup_transitions, violation_memory_ratio, analytical_constraint=None, constraint_weight_decay=None,
                  use_log_alpha_loss=False, log_std_min=-20, log_std_max=2, target_entropy=None, critic_fit_params=None):
         """
@@ -564,8 +576,7 @@ class DatacomSAC(DeepAC):
 
         policy = DatacomSACPolicy(actor_mu_approximator, actor_sigma_approximator, self._constraint_value_function_approximator,
                                   self._constraint_approximator, control_system, mdp_info, accepted_risk, self.delta, self.delta_value_function,
-                                  atacom_lam,
-                                  atacom_beta, self._target_entropy, mdp_info.action_space.low,
+                                  slack_limit, atacom_lam, atacom_beta, self._target_entropy, mdp_info.action_space.low,
                                   mdp_info.action_space.high,
                                   log_std_min, log_std_max, atacom_dc, use_viability, analytical_constraint)
 

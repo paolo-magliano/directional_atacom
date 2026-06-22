@@ -17,11 +17,11 @@ from cremini_rl.algorithms.datacom_sac import DatacomSACPolicy, DatacomSAC
 
 class DatacomIQNSACPolicy(DatacomSACPolicy):
     def __init__(self, mu_approximator, sigma_approximator, constraint_approximator, control_system, mdp_info,
-                 accepted_risk, delta, atacom_lam, atacom_beta, target_entropy, min_a, max_a, log_std_min, log_std_max):
+                 accepted_risk, delta, slack_limit, atacom_lam, atacom_beta, target_entropy, min_a, max_a, log_std_min, log_std_max):
         self._risk_logit = torch.tensor(np.log(accepted_risk / (1 - accepted_risk))).float()
 
         super().__init__(mu_approximator, sigma_approximator, constraint_approximator, control_system, mdp_info,
-                         accepted_risk, delta, atacom_lam, atacom_beta, target_entropy, min_a, max_a, log_std_min,
+                         accepted_risk, delta, slack_limit, atacom_lam, atacom_beta, target_entropy, min_a, max_a, log_std_min,
                          log_std_max)
 
         self._add_save_attr(
@@ -61,7 +61,7 @@ class DatacomIQNSACPolicy(DatacomSACPolicy):
 class IQNAtacomSAC(DatacomSAC):
     def __init__(self, mdp_info, control_system, accepted_risk, actor_mu_params, actor_sigma_params, actor_optimizer,
                  critic_params, batch_size, initial_replay_size, max_replay_size, warmup_transitions, tau, lr_alpha,
-                 cost_budget, constraint_params, atacom_lam, atacom_beta,
+                 cost_budget, constraint_params, slack_limit, atacom_lam, atacom_beta,
                  lr_delta, init_delta, delta_warmup_transitions,
                  num_quantile_samples, num_next_quantile_samples,
                  use_log_alpha_loss=False, log_std_min=-20, log_std_max=2, target_entropy=None,

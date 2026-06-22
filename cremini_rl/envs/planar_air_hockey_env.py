@@ -7,7 +7,7 @@ from air_hockey_challenge.environments.planar.single import AirHockeySingle as P
 from air_hockey_challenge.constraints import JointPositionConstraint, JointVelocityConstraint, EndEffectorConstraint
 from collections import OrderedDict
 
-from cremini_rl.constraints.constraints import ConstraintCollection as ConstraintList
+from cremini_rl.envs.base_constr_env import ConstrEnv
 from cremini_rl.utils.control import VelocityControl, AccelerationControl
 
 class AbsorbType(Enum):
@@ -18,29 +18,13 @@ class AbsorbType(Enum):
     LEFT = 4
     BOTTOM = 5
 
-
-class Cache(OrderedDict):
-    def __init__(self, maxsize=200000, /, *args, **kwds):
-        self.maxsize = maxsize
-        super().__init__(*args, **kwds)
-
-    def __getitem__(self, key):
-        value = super().__getitem__(key)
-        return value
-
-    def __setitem__(self, key, value):
-        super().__setitem__(key, value)
-        if len(self) > self.maxsize:
-            oldest = next(iter(self))
-            del self[oldest]
-
-class PlanarAirHockey(PlanarAirHockeySingle):
+class PlanarAirHockey(PlanarAirHockeySingle, ConstrEnv):
     def __init__(self, return_cost=True, dynamic_noise=0, headless=True, learning_constr=[]):
         self.return_cost = return_cost
 
         # if headless:
-        super().__init__(horizon=300, viewer_params={'headless': headless, 'camera_params': {
-                            'static': dict(distance=5.0, elevation=-45.0, azimuth=90.0, lookat=np.array([0.0, 0.0, 0.0])),
+        super().__init__(horizon=300, viewer_params={'headless': headless, 'width': 1920, 'height': 1080, 'camera_params': {
+                            'static': dict(distance=5.0, elevation=-45.0, azimuth=90.0, lookat=np.array([-0.3, 0.0, 0.0])),
                             'follow': dict(distance=3.5, elevation=0.0, azimuth=90.0),
                             'top_static': dict(distance=5.0, elevation=-90.0, azimuth=90.0, lookat=np.array([0.0, 0.0, 0.0]))
                         }})
@@ -60,18 +44,6 @@ class PlanarAirHockey(PlanarAirHockeySingle):
         self.dynamic_noise = dynamic_noise
 
         self.info.action_space = Box(low=-np.ones(self.env_info['robot']['n_joints']), high=np.ones(self.env_info['robot']['n_joints']))
-
-    def constraint_init(self, constraints_class, K_values):
-        self.K = []
-        self.original_constraint_list = ConstraintList()
-
-        for constr_class, k in zip(constraints_class, K_values):
-            constr = constr_class(self.env_info)
-            self.original_constraint_list.add(constr)
-            self.K += [k] * constr.output_dim
-
-        self.K = np.array(self.K)
-        self.n_learnable_constr = self.K.shape[0] - 2
 
     def step(self, action):
         new_action = action.copy()
@@ -201,37 +173,6 @@ class PlanarAirHockey(PlanarAirHockeySingle):
         mdp_info.observation_space = Box(high=np.concatenate([mdp_info.observation_space.high, [2, 1, 5, 5]]),
                                          low=np.concatenate([mdp_info.observation_space.high, [-2, -1, 5, 5]]))
         return mdp_info
-
-    def constraint_func(self, q):
-        N = len(q)
-        n_constr = self.original_constraint_list.output_dim()
-        cons = np.zeros((N, n_constr))
-        J_q = np.zeros((N, n_constr, q.shape[-1]))
-        if n_constr != 0:
-            for i in range(N):
-                c, J = self._original_constraint(q[i])
-
-                cons[i] = c
-                J_q[i] = J[..., :q.shape[-1]]
-
-        return cons, J_q, np.zeros((N, n_constr, 0)), self.K
-
-    def _original_constraint(self, q):
-        pos = q[:3]
-        vel = q[3:] if len(q) > 3 else np.zeros(3)
-
-        constraint_keys = self.original_constraint_list.keys()
-        constraints = []
-        constraints_J = []
-
-        for key in constraint_keys:
-            constraints.append(self.original_constraint_list.get(key).fun(pos, vel))
-            constraints_J.append(self.original_constraint_list.get(key).jacobian(pos, vel).copy())
-
-        const = np.concatenate(constraints)
-        J_q = np.vstack(constraints_J)
-
-        return const, J_q
 
 class PlanarAirHockeyVel(VelocityControl, PlanarAirHockey):
     def __init__(self, return_cost=True, dynamic_noise=0, headless=True):

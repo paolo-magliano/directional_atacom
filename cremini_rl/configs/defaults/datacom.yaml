@@ -7,6 +7,7 @@ use_viability: True
 
 n_episodes_test: 15
 
+slack_limit: 1.
 atacom_lam: 50
 atacom_beta: 1.0
 atacom_dc: False

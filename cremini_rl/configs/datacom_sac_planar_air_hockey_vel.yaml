@@ -27,11 +27,14 @@ use_cuda: False
 render: False
 n_episodes_test: 25
 
-init_delta: 3
-lr_delta: 0.05
-delta_warmup_transitions: 50000
+init_delta: 0.
+lr_delta: -1
+delta_warmup_transitions: 1000
 
 use_viability: False
 
 constr_aggregation: 'max' # none, array, max
 constr_aggregation_value_function: 'none' # none, array, max
+
+# checkpoint: 
+#         "logs/planar_air_hockey_vel_2026-02-27_16-09-29/0/agent.msh"

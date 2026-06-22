@@ -104,6 +104,17 @@ class SafeLayerDDPG(DDPG):
                                     self._target_actor_approximator)
 
                 self._fit_count += 1
+                
+    def draw_action(self, state):
+        return super().draw_action(self._preprocess(state.copy()))
+
+    def _preprocess(self, state):
+        for p in self.preprocessors:
+            if state.ndim == 2:
+                state = np.array([p(s.copy()) for s in state])
+            else:
+                state = p(state)
+        return state
 
     def preprocess_action(self, state, action, cost):
         g = self._constraint_approximator.predict(state)

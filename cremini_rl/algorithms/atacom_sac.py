@@ -1,47 +1,63 @@
+import numpy as np
 import torch
+import torch.optim as optim
+from scipy.linalg import qr, svd
+
 from mushroom_rl.algorithms.actor_critic.deep_actor_critic import SAC
 from mushroom_rl.utils.parameters import to_parameter
 
 from cremini_rl.utils.null_space import batch_smooth_basis, smooth_basis
-import numpy as np
-
-from scipy.linalg import qr, svd
 
 class AtacomSACBaseline(SAC):
-    def __init__(self, mdp_info, control_system, atacom_lam, atacom_beta, atacom_dc, constraint_func, use_viability,
+    def __init__(self, mdp_info, control_system, slack_limit, atacom_lam, atacom_beta, atacom_dc, constraint_func, use_viability,
                  actor_mu_params,
                  actor_sigma_params, actor_optimizer, critic_params, batch_size,
-                 initial_replay_size, max_replay_size, warmup_transitions, tau, lr_alpha, use_log_alpha_loss=False,
-                 log_std_min=-20, log_std_max=2, target_entropy=None, critic_fit_params=None):
+                 initial_replay_size, max_replay_size, warmup_transitions, tau, lr_alpha, use_log_alpha_loss=False, init_alpha=1.,
+                 log_std_min=-20, log_std_max=2, target_entropy=None, critic_fit_params=None, action_filter_ratio=None, save_prev_action=None):
         super().__init__(mdp_info, actor_mu_params, actor_sigma_params, actor_optimizer, critic_params, batch_size,
                          initial_replay_size, max_replay_size, warmup_transitions, tau, lr_alpha, use_log_alpha_loss,
                          log_std_min, log_std_max, target_entropy, critic_fit_params)
 
+        self._log_alpha = torch.tensor(np.log(init_alpha)).to(self._log_alpha).requires_grad_(True)
+        self._alpha_optim = optim.Adam([self._log_alpha], lr=lr_alpha)
+
+        self.state_preprocessors = []
+
         self._control_system = control_system
         self._atacom_lam = to_parameter(atacom_lam)
-        self._atacom_beta = to_parameter(atacom_beta)
+        self._atacom_beta = to_parameter(np.array(atacom_beta)) if isinstance(atacom_beta, list) else to_parameter(atacom_beta)
         self._constraint_func = constraint_func
-
-        self._add_save_attr(_control_system='mushroom',
-                            _atacom_lam='mushroom',
-                            _atacom_beta='mushroom')
-
+        self._slack_limit = slack_limit
         self._use_viability = use_viability
         self._atacom_dc = atacom_dc
         self.derivation_step_size = 1e-4
         # self.K = 0.5
 
+        self.prev_action = np.zeros(mdp_info.action_space.shape)
+        self.action_filter_ratio = action_filter_ratio
+        self.save_prev_action = save_prev_action
+
+        self._add_save_attr(state_preprocessors='mushroom',
+                            _control_system='mushroom',
+                            _slack_limit='primitive',
+                            _atacom_lam='mushroom',
+                            _atacom_beta='mushroom',
+                            _use_viability='primitive',
+                            _atacom_dc='primitive')
+
 
     def fit(self, dataset, **info):
         new_dataset = []
         for sample in dataset:
-            new_dataset.append(sample[:4] + sample[5:])
+            state = self._state_preprocess(sample[0].copy())
+            next_state = self._state_preprocess(sample[3].copy())
+            new_dataset.append((state, *sample[1:3], next_state, *sample[5:]))
 
         super().fit(new_dataset, **info)
 
     def J_slack(self, slack):
         out = np.zeros(slack.shape + (slack.shape[1],))
-        np.einsum('ijj->ij', out)[:] = 1 / np.maximum(np.exp(-self._atacom_beta() * slack), 1e-5) - 1
+        np.einsum('ijj->ij', out)[:] = self._slack_limit * (1 / np.maximum(np.exp(-self._atacom_beta() * slack), 1e-5) - 1)
 
         return out
 
@@ -137,8 +153,33 @@ class AtacomSACBaseline(SAC):
         tangential_term = (B_u @ alpha[:, None]).squeeze(-1)
         action = tangential_term[..., :alpha.shape[-1]] + b[..., :alpha.shape[-1]]
 
+        action = np.clip(action, self.mdp_info.action_space.low, self.mdp_info.action_space.high)
+
         return action
 
+    def draw_action(self, state):
+        action = super().draw_action(self._state_preprocess(state.copy()))
+
+        action = np.clip(action, self.mdp_info.action_space.low, self.mdp_info.action_space.high)
+
+        if self.action_filter_ratio:
+            action = (1 - self.action_filter_ratio) * self.prev_action + self.action_filter_ratio * action
+            self.prev_action = action.copy()
+            self.save_prev_action(self.prev_action)
+
+        return action
+
+    def _state_preprocess(self, state):
+        for p in self.state_preprocessors:
+            if state.ndim == 2:
+                state = np.array([p(s.copy()) for s in state])
+            else:
+                state = p(state)
+        return state
+    
+    def add_state_preprocessor(self, preprocessor):
+        self.state_preprocessors.append(preprocessor)
+        
     def _directional_constraints(self, drift, J_G, alpha):
         if self._atacom_dc:
             constraint_direction = J_G @ alpha

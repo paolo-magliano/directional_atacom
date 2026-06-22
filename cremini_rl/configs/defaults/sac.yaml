@@ -4,3 +4,5 @@ target_entropy: -3
 
 beta_policy: False
 # n_epochs: 500
+
+# checkpoint: "logs/planar_air_hockey_vel_2026-02-22_22-34-28/0/agent.msh" # SAC 

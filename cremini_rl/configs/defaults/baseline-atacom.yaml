@@ -1,3 +1,4 @@
+slack_limit: 1.
 atacom_lam: 25
 atacom_beta: 0.8
 atacom_dc: False
@@ -16,6 +17,7 @@ max_replay_size: 200000
 learning_rate_actor: 5.e-4
 learning_rate_critic: 5.e-4
 
+init_alpha: 1.
 lr_alpha: 5.e-4
 target_entropy: -3
 batch_size: 64

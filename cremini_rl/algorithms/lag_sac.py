@@ -157,6 +157,17 @@ class LagSAC(SAC):
 
         return (self._alpha * log_prob - q + (self.beta.detach() - damp) * c).mean()
 
+    def draw_action(self, state):
+        return super().draw_action(self._preprocess(state.copy()))
+
+    def _preprocess(self, state):
+        for p in self.preprocessors:
+            if state.ndim == 2:
+                state = np.array([p(s.copy()) for s in state])
+            else:
+                state = p(state)
+        return state
+        
     def fit(self, dataset, **info):
         self._replay_memory.add(dataset)
         if self._replay_memory.initialized:

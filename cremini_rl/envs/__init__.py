@@ -5,4 +5,4 @@ from .cartpole_goal_env import SafeCartPoleEnv
 from .tiago_navigation_env import TiagoNavigationEnv
 from .moving_obs import MovingObsEnv
 from .goal_navigation_env import GoalNavigationEnv
-from .quadrotor_env import QuadrotorEnv
+from .quadrotor_navigation_env import QuadrotorEnv

@@ -34,5 +34,5 @@ constraint_weight_decay: 1.e-3
 
 use_viability: True
 
-constr_aggregation: 'array' # none, array, max
-constr_aggregation_value_function: 'none' # none, array, max
+constr_aggregation: 'none' # none, array, max
+constr_aggregation_value_function: 'max' # none, array, max

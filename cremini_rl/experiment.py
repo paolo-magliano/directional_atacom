@@ -2,6 +2,7 @@ import torch
 
 from mushroom_rl.core import Logger, Core
 from mushroom_rl.utils.dataset import compute_J, compute_episodes_length, parse_dataset, get_init_states
+from mushroom_rl.core import Agent
 
 from cremini_rl.envs import *
 from cremini_rl.envs.tiago_navigation_env import TiagoNavigationEnv
@@ -16,6 +17,8 @@ from cremini_rl.algorithms.datacom_sac import constr_aggregation_mapping
 from experiment_launcher.decorators import single_experiment
 
 import os
+os.environ["WANDB__SERVICE_WAIT"] = "300"
+
 import wandb
 import argparse
 import glob
@@ -66,8 +69,14 @@ def experiment(results_dir: str,
     mdp, control_system = build_mdp(env_name, return_cost)
 
     gamma = mdp.info.gamma
-
-    agent = agent_builder(alg, mdp, control_system, initial_replay_size=initial_replay_size, **kwargs)
+    if kwargs.get('checkpoint', None):
+        agent = Agent.load(kwargs['checkpoint'])
+        if "atacom" in alg:
+            agent._constraint_func = mdp.constraint_func
+            # agent._use_viability = kwargs['use_viability']
+            # agent._atacom_dc = kwargs['atacom_dc']
+    else:
+        agent = agent_builder(alg, mdp, control_system, initial_replay_size=initial_replay_size, **kwargs)
 
     if return_cost:
         core = SafeCore(agent, mdp, record_dictionary={'path': "/".join(str(logger.path).split("/")[:-1]), 'tag': str(logger.path).split("/")[-1], 'video_name': 'policy'})
@@ -80,14 +89,16 @@ def experiment(results_dir: str,
     # RUN
     best_J = -np.inf
 
+    epoch_log = n_epochs // 10
+
     for n in range(n_epochs):
-        data = evaluate(core, n_episodes_test, gamma, quiet, render=(render and n % 25 == 0), record=(record and n % 25 == 0))
+        data = evaluate(core, n_episodes_test, gamma, quiet, render=(render and n % epoch_log == 0), record=(record and n % epoch_log == 0))
 
         if data["J"] > best_J:
             best_J = data["J"]
             logger.log_agent(agent, "J")
 
-        if n % 25 == 0:
+        if n % epoch_log == 0:
             logger.log_agent(agent, n)
 
         log_data(data, n, logger)
@@ -96,7 +107,7 @@ def experiment(results_dir: str,
 
     data = evaluate(core, n_episodes_test, gamma, quiet, render=render, record=record)
 
-    logger.log_agent(agent)
+    logger.log_agent(agent, n + 1)
     log_data(data, n + 1, logger)
 
     art = wandb.Artifact("checkpoints", type="model")
@@ -114,8 +125,8 @@ def evaluate(core, n_episodes_test, gamma, quiet, render, record=False):
     init_states = get_init_states(dataset)
     states = np.array([d[0] for d in dataset])
     next_states = np.array([d[3] for d in dataset])
-    absorbing = np.array([d[4] for d in dataset])
-    last = np.array([d[5] for d in dataset])
+    absorbing = np.array([d[-2] for d in dataset])
+    last = np.array([d[-1] for d in dataset])
 
     J = np.mean(compute_J(dataset, gamma))
     R = np.mean(compute_J(dataset))
@@ -161,8 +172,8 @@ def evaluate(core, n_episodes_test, gamma, quiet, render, record=False):
         E = core.agent.policy.entropy(states)
         data_dict["E"] = E
 
-    if "puck_vel" in info.keys():
-        data_dict["puck_vel"] = np.mean(info["puck_vel"])
+    if "puck_vel_cross" in info.keys():
+        data_dict["puck_vel_cross"] = np.mean(np.array(info["puck_vel_cross"])[last])
 
     if "joint_vel" in info.keys():
         data_dict["joint_vel"] = np.mean(info["joint_vel"])
@@ -183,6 +194,9 @@ def evaluate(core, n_episodes_test, gamma, quiet, render, record=False):
     
     if "dist_to_target" in info.keys():
         data_dict["dist_to_target"] = np.mean(info["dist_to_target"])
+
+    if "dist_to_target_vel" in info.keys():
+        data_dict["dist_to_target_vel"] = np.mean(info["dist_to_target_vel"])
 
     if "cartesian_velocity" in info.keys():
         data_dict["cartesian_velocity"] = np.mean(info["cartesian_velocity"])
@@ -408,12 +422,12 @@ def build_mdp(env_name, return_cost):
 
     elif env_name == "air_hockey_vel":
         q_idx = [6, 7, 8, 9, 10, 11, 12]
-        mdp = AirHockeyVel(return_cost=return_cost)
+        mdp = AirHockeyVel(return_cost=return_cost, action_filter_ratio=0.2)
         control_system = VelocityControlSystem(7, q_idx, 1)
 
     elif env_name == "air_hockey":
         q_idx = [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
-        mdp = AirHockeyAcc(return_cost=return_cost)
+        mdp = AirHockeyAcc(return_cost=return_cost, action_filter_ratio=0.2)
         control_system = AccelerationControlSystem(7, q_idx, 1)
 
     elif env_name == "planar_air_hockey_vel":
@@ -482,6 +496,7 @@ def parse_args():
     arg_exp.add_argument("--n_features_actor", type=int, nargs='+')
     arg_exp.add_argument("--n_features_critic", type=int, nargs='+')
     arg_exp.add_argument("--n_features_constraint", type=int, nargs='+')
+    arg_exp.add_argument("--activation", type=str)
 
     arg_exp.add_argument("--initial_replay_size", type=int)
     arg_exp.add_argument("--max_replay_size", type=int)
@@ -498,13 +513,19 @@ def parse_args():
 
     arg_exp.add_argument("--tau", type=float)
 
+    arg_exp.add_argument("--normalize_state", type=lambda x: x.lower() == "true")
+
+    arg_exp.add_argument("--checkpoint", type=str, nargs='?', default=None)
+
     # SAC
+    arg_exp.add_argument("--init_alpha", type=float)
     arg_exp.add_argument("--lr_alpha", type=float)
     arg_exp.add_argument("--warmup_transitions", type=float)
     arg_exp.add_argument("--target_entropy", type=float)
-    arg_exp.add_argument("--beta_policy", type=bool)
+    arg_exp.add_argument("--beta_policy", type=lambda x: x.lower() == "true")
 
     # Atacom
+    arg_exp.add_argument("--slack_limit", type=float)
     arg_exp.add_argument("--atacom_lam", type=float)
     arg_exp.add_argument("--atacom_beta", type=float)
     arg_exp.add_argument("--atacom_dc", type=lambda x: x.lower() == "true")
@@ -554,5 +575,5 @@ if __name__ == '__main__':
     global_seed = args["seed"]
     del args["seed"]
 
-    Parallel(n_jobs=5)(delayed(experiment)(**deepcopy(args), seed=i + global_seed * args["n_exp_in_parallel"]) for i in
+    Parallel(n_jobs=1)(delayed(experiment)(**deepcopy(args), seed=i + global_seed * args["n_exp_in_parallel"]) for i in
                        range(args["n_exp_in_parallel"]))

@@ -1,4 +1,5 @@
 import torch.optim as optim
+from mushroom_rl.utils.preprocessors import MinMaxPreprocessor
 from mushroom_rl.algorithms.actor_critic.deep_actor_critic import TD3, SAC
 from mushroom_rl.policy import ClippedGaussianPolicy
 
@@ -8,7 +9,7 @@ from cremini_rl.utils.networks import *
 from cremini_rl.utils.beta_policy import BetaPolicy
 
 
-def agent_builder(alg, mdp, control_system, **kwargs):
+def agent_builder(alg, mdp, control_system, normalize_state, **kwargs):
     for key in ["n_features_actor", "n_features_critic", "n_features_constraint"]:
         if key in kwargs.keys():
             if isinstance(kwargs[key], list):
@@ -18,51 +19,62 @@ def agent_builder(alg, mdp, control_system, **kwargs):
     alg = alg.replace("_vel", "") 
 
     if alg == "td3":
-        return build_td3(mdp, **kwargs)
+        agent = build_td3(mdp, **kwargs)
 
     if alg == "sac":
-        return build_sac(mdp, **kwargs)
+        agent = build_sac(mdp, **kwargs)
 
     if alg == "datacom_sac":
-        return build_datacom_sac(mdp, control_system, **kwargs)
+        agent = build_datacom_sac(mdp, control_system, **kwargs)
 
     if alg == "cbf_sac":
-        return build_cbf_sac(mdp, control_system, **kwargs)
+        agent = build_cbf_sac(mdp, control_system, **kwargs)
 
     if alg == "iqn_datacom_sac":
-        return build_iqn_datacom_sac(mdp, control_system, **kwargs)
+        agent = build_iqn_datacom_sac(mdp, control_system, **kwargs)
 
     if alg == "baseline-atacom_sac":
-        return build_baseline_atacom_sac(mdp, control_system, **kwargs)
+        agent = build_baseline_atacom_sac(mdp, control_system, **kwargs)
 
     if alg == "safelayer_td3":
-        return build_safelayer_td3(mdp, **kwargs)
+        agent = build_safelayer_td3(mdp, **kwargs)
 
     if alg == "lag_sac":
-        return build_lag_sac(mdp, **kwargs)
+        agent = build_lag_sac(mdp, **kwargs)
 
     if alg == "wc_lag_sac":
-        return build_wcsac(mdp, **kwargs)
+        agent = build_wcsac(mdp, **kwargs)
+
+    if normalize_state:
+        agent.add_state_preprocessor(MinMaxPreprocessor(mdp.info))
+
+    return agent
 
 
-def build_baseline_atacom_sac(mdp, control_system, atacom_lam, atacom_beta, atacom_dc, initial_replay_size, max_replay_size,
-                              batch_size, n_features_actor, n_features_critic,
-                              learning_rate_actor, learning_rate_critic, tau, lr_alpha, target_entropy,
+def build_baseline_atacom_sac(mdp, control_system, slack_limit, atacom_lam, atacom_beta, atacom_dc, initial_replay_size, max_replay_size,
+                              batch_size, n_features_actor, n_features_critic, activation,
+                              learning_rate_actor, learning_rate_critic, tau, lr_alpha, init_alpha, target_entropy, 
                               warmup_transitions, use_viability, use_cuda, beta_policy,
                               **kwargs):
     actor_mu_params, actor_sigma_params, actor_optimizer, critic_params, alg_params = \
-        build_sac_params(mdp, n_features_actor, n_features_critic, learning_rate_actor, learning_rate_critic,
+        build_sac_params(mdp, n_features_actor, n_features_critic, learning_rate_actor, learning_rate_critic, activation,
                          use_cuda, tau, lr_alpha, target_entropy, warmup_transitions)
 
     constraint_func = mdp.constraint_func
 
-    agent = AtacomSACBaseline(mdp.info, control_system, atacom_lam, atacom_beta, atacom_dc, constraint_func, use_viability,
+    action_filter_ratio = mdp.action_filter_ratio
+    save_prev_action = mdp.save_prev_action_obs if hasattr(mdp, "save_prev_action_obs") else None
+
+    if mdp.__class__.__name__.startswith("AirHockey"):
+        atacom_beta = [atacom_beta] * 19 + [0.01] * 2
+
+    agent = AtacomSACBaseline(mdp.info, control_system, slack_limit, atacom_lam, atacom_beta, atacom_dc, constraint_func, use_viability,
                               actor_mu_params,
                               actor_sigma_params,
                               actor_optimizer, critic_params,
                               **alg_params,
                               initial_replay_size=initial_replay_size, max_replay_size=max_replay_size,
-                              batch_size=batch_size)
+                              batch_size=batch_size, init_alpha=init_alpha, action_filter_ratio=action_filter_ratio, save_prev_action=save_prev_action)
 
     if beta_policy:
         from mushroom_rl.approximators import Regressor
@@ -210,17 +222,19 @@ def build_safelayer_td3(mdp, initial_replay_size, max_replay_size, batch_size, n
     return agent
 
 
-def build_sac_params(mdp, n_features_actor, n_features_critic, learning_rate_actor, learning_rate_critic, use_cuda,
+def build_sac_params(mdp, n_features_actor, n_features_critic, learning_rate_actor, learning_rate_critic, activation, use_cuda,
                      tau, lr_alpha, target_entropy, warmup_transitions):
     actor_mu_params = dict(network=SACActorNetwork,
                            input_shape=mdp.info.observation_space.shape,
                            output_shape=mdp.info.action_space.shape,
                            n_features=list(map(int, n_features_actor.split(' '))),
+                           activation=activation,
                            use_cuda=use_cuda)
     actor_sigma_params = dict(network=SACActorNetwork,
                               input_shape=mdp.info.observation_space.shape,
                               output_shape=mdp.info.action_space.shape,
                               n_features=list(map(int, n_features_actor.split(' '))),
+                              activation=activation,
                               use_cuda=use_cuda)
 
     actor_optimizer = {'class': optim.Adam,
@@ -232,6 +246,7 @@ def build_sac_params(mdp, n_features_actor, n_features_critic, learning_rate_act
                                     'params': {'lr': learning_rate_critic}},
                          loss=F.mse_loss,
                          n_features=list(map(int, n_features_critic.split(' '))),
+                         activation=activation,
                          output_shape=(1,),
                          action_shape=mdp.info.action_space.shape,
                          action_scaling=(mdp.info.action_space.high - mdp.info.action_space.low) / 2,
@@ -246,10 +261,10 @@ def build_sac_params(mdp, n_features_actor, n_features_critic, learning_rate_act
     return actor_mu_params, actor_sigma_params, actor_optimizer, critic_params, alg_params
 
 def build_sac(mdp, initial_replay_size, max_replay_size, batch_size, n_features_actor, n_features_critic,
-              learning_rate_actor, learning_rate_critic, use_cuda, tau, lr_alpha, target_entropy, warmup_transitions,
+              learning_rate_actor, learning_rate_critic, activation, use_cuda, tau, lr_alpha, target_entropy, warmup_transitions,
               **kwargs):
     actor_mu_params, actor_sigma_params, actor_optimizer, critic_params, alg_params = \
-        build_sac_params(mdp, n_features_actor, n_features_critic, learning_rate_actor, learning_rate_critic,
+        build_sac_params(mdp, n_features_actor, n_features_critic, learning_rate_actor, learning_rate_critic, activation, 
                          use_cuda, tau, lr_alpha, target_entropy, warmup_transitions)
 
     print(alg_params, use_cuda)
@@ -261,15 +276,15 @@ def build_sac(mdp, initial_replay_size, max_replay_size, batch_size, n_features_
     return agent
 
 def build_datacom_sac(mdp, control_system, initial_replay_size, max_replay_size, batch_size, n_features_actor,
-                      n_features_critic, n_features_constraint, learning_rate_actor, learning_rate_critic,
+                      n_features_critic, n_features_constraint, learning_rate_actor, learning_rate_critic, activation,
                       accepted_risk, learning_rate_constraint, constraint_weight_decay,
-                      atacom_lam, atacom_beta, use_cuda, tau, lr_alpha, target_entropy, atacom_dc, use_viability, violation_memory_ratio,
+                      slack_limit, atacom_lam, atacom_beta, use_cuda, tau, lr_alpha, target_entropy, atacom_dc, use_viability, violation_memory_ratio,
                       warmup_transitions, cost_budget, constr_aggregation, constr_aggregation_value_function, lr_delta, init_delta, delta_warmup_transitions, **kwargs):
     constraint_params = build_constraint(control_system, "gaussian",
                                          learning_rate_constraint, n_features_constraint, use_cuda)
 
     actor_mu_params, actor_sigma_params, actor_optimizer, critic_params, alg_params = \
-        build_sac_params(mdp, n_features_actor, n_features_critic, learning_rate_actor, learning_rate_critic,
+        build_sac_params(mdp, n_features_actor, n_features_critic, learning_rate_actor, learning_rate_critic, activation,
                          use_cuda, tau, lr_alpha, target_entropy, warmup_transitions)
 
     if hasattr(mdp, "analytical_constraint"):
@@ -280,7 +295,7 @@ def build_datacom_sac(mdp, control_system, initial_replay_size, max_replay_size,
                        actor_optimizer=actor_optimizer, critic_params=critic_params, batch_size=batch_size,
                        initial_replay_size=initial_replay_size, max_replay_size=max_replay_size,
                        cost_budget=cost_budget, constraint_params=constraint_params, constr_aggregation=constr_aggregation, constr_aggregation_value_function=constr_aggregation_value_function, 
-                       atacom_lam=atacom_lam, atacom_beta=atacom_beta, lr_delta=lr_delta, init_delta=init_delta, constraint_weight_decay=constraint_weight_decay,
+                       slack_limit=slack_limit, atacom_lam=atacom_lam, atacom_beta=atacom_beta, lr_delta=lr_delta, init_delta=init_delta, constraint_weight_decay=constraint_weight_decay,
                        delta_warmup_transitions=delta_warmup_transitions, atacom_dc=atacom_dc, use_viability=use_viability, n_learnable_constr=mdp.n_learnable_constr, violation_memory_ratio=violation_memory_ratio,
                        **alg_params)
 
@@ -288,7 +303,7 @@ def build_datacom_sac(mdp, control_system, initial_replay_size, max_replay_size,
 
 
 def build_cbf_sac(mdp, control_system, initial_replay_size, max_replay_size, batch_size, n_features_actor,
-                  n_features_critic, n_features_constraint, learning_rate_actor, learning_rate_critic,
+                  n_features_critic, n_features_constraint, learning_rate_actor, learning_rate_critic, activation,
                   learning_rate_constraint,
                   use_cuda, tau, lr_alpha, target_entropy,
                   warmup_transitions, **kwargs):
@@ -304,7 +319,7 @@ def build_cbf_sac(mdp, control_system, initial_replay_size, max_replay_size, bat
                              activation='relu')
 
     actor_mu_params, actor_sigma_params, actor_optimizer, critic_params, alg_params = \
-        build_sac_params(mdp, n_features_actor, n_features_critic, learning_rate_actor, learning_rate_critic,
+        build_sac_params(mdp, n_features_actor, n_features_critic, learning_rate_actor, learning_rate_critic, activation,
                          use_cuda, tau, lr_alpha, target_entropy, warmup_transitions)
 
     if hasattr(mdp, "analytical_constraint"):
@@ -321,9 +336,9 @@ def build_cbf_sac(mdp, control_system, initial_replay_size, max_replay_size, bat
 
 
 def build_iqn_datacom_sac(mdp, control_system, initial_replay_size, max_replay_size, batch_size, n_features_actor,
-                          n_features_critic, n_features_constraint, learning_rate_actor, learning_rate_critic,
+                          n_features_critic, n_features_constraint, learning_rate_actor, learning_rate_critic, activation,
                           learning_rate_constraint, accepted_risk,
-                          atacom_lam, atacom_beta, use_cuda, tau, lr_alpha, target_entropy, warmup_transitions,
+                          slack_limit, atacom_lam, atacom_beta, use_cuda, tau, lr_alpha, target_entropy, warmup_transitions,
                           quantile_embedding_dim, num_quantile_samples,
                           num_next_quantile_samples,
                           cost_budget, lr_delta, init_delta, delta_warmup_transitions, **kwargs):
@@ -333,7 +348,7 @@ def build_iqn_datacom_sac(mdp, control_system, initial_replay_size, max_replay_s
     constraint_params['embedding_size'] = quantile_embedding_dim
 
     actor_mu_params, actor_sigma_params, actor_optimizer, critic_params, alg_params = \
-        build_sac_params(mdp, n_features_actor, n_features_critic, learning_rate_actor, learning_rate_critic,
+        build_sac_params(mdp, n_features_actor, n_features_critic, learning_rate_actor, learning_rate_critic, activation,
                          use_cuda, tau, lr_alpha, target_entropy, warmup_transitions)
 
     agent = IQNAtacomSAC(mdp_info=mdp.info, control_system=control_system, accepted_risk=accepted_risk,
@@ -341,7 +356,7 @@ def build_iqn_datacom_sac(mdp, control_system, initial_replay_size, max_replay_s
                          actor_optimizer=actor_optimizer,
                          critic_params=critic_params, batch_size=batch_size, initial_replay_size=initial_replay_size,
                          max_replay_size=max_replay_size, cost_budget=cost_budget, constraint_params=constraint_params,
-                         atacom_lam=atacom_lam, atacom_beta=atacom_beta,
+                         slack_limit=slack_limit, atacom_lam=atacom_lam, atacom_beta=atacom_beta,
                          lr_delta=lr_delta, init_delta=init_delta, delta_warmup_transitions=delta_warmup_transitions,
                          num_quantile_samples=num_quantile_samples, num_next_quantile_samples=num_next_quantile_samples,
                          **alg_params)
@@ -349,10 +364,10 @@ def build_iqn_datacom_sac(mdp, control_system, initial_replay_size, max_replay_s
 
 
 def build_lag_sac(mdp, initial_replay_size, max_replay_size, batch_size, n_features_actor, n_features_critic,
-                  learning_rate_actor, learning_rate_critic, learning_rate_constraint, tau, lr_alpha, target_entropy,
+                  learning_rate_actor, learning_rate_critic, learning_rate_constraint, activation, tau, lr_alpha, target_entropy,
                   warmup_transitions, use_cuda, lr_beta, cost_limit, damp_scale, **kwargs):
     actor_mu_params, actor_sigma_params, actor_optimizer, critic_params, alg_params = \
-        build_sac_params(mdp, n_features_actor, n_features_critic, learning_rate_actor, learning_rate_critic,
+        build_sac_params(mdp, n_features_actor, n_features_critic, learning_rate_actor, learning_rate_critic, activation,
                          use_cuda, tau, lr_alpha, target_entropy, warmup_transitions)
 
     constraint_params = dict(network=SACCriticNetwork,
@@ -373,12 +388,12 @@ def build_lag_sac(mdp, initial_replay_size, max_replay_size, batch_size, n_featu
 
 
 def build_wcsac(mdp, initial_replay_size, max_replay_size, batch_size, n_features_actor, n_features_critic,
-                learning_rate_actor, learning_rate_critic, learning_rate_constraint, accepted_risk, tau, lr_alpha,
+                learning_rate_actor, learning_rate_critic, learning_rate_constraint, activation, accepted_risk, tau, lr_alpha,
                 target_entropy, warmup_transitions, lr_beta, cost_limit, damp_scale, constraint_type, **kwargs):
     use_cuda = False
 
     actor_mu_params, actor_sigma_params, actor_optimizer, critic_params, alg_params = \
-        build_sac_params(mdp, n_features_actor, n_features_critic, learning_rate_actor, learning_rate_critic,
+        build_sac_params(mdp, n_features_actor, n_features_critic, learning_rate_actor, learning_rate_critic, activation, 
                          use_cuda, tau, lr_alpha, target_entropy, warmup_transitions)
 
     if constraint_type == "gaussian":

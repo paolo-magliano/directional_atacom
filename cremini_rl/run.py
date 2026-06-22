@@ -8,9 +8,9 @@ import os
 
 def main():
     # Choices: cartpole, tiago_navigation, planar_air_hockey, planar_air_hockey_vel, dense_ball2d, goal_navigation,
-    env = "planar_air_hockey"
+    env = "air_hockey_vel"
     # Choices: sac, td3, datacom_sac, iqn_datacom_sac, safelayer_td3, lag_sac, wc_lag_sac, cbf_sac, baseline-atacom_sac
-    alg = "sac"
+    alg = "baseline-atacom_sac"
 
     # Load configs based on the algorithm and environment, there are defaults for each algorithm. They are merged
     # with the environment specific config if it exists.
@@ -34,10 +34,10 @@ def main():
     else:
         debug = False
         use_wandb = True
-        n_seeds = 20
+        n_seeds = 10
         n_exp_in_parallel = 1
 
-    config['record'] = False
+    # config['record'] = False
     n_record = int(config['record'])
 
     start_seed=0
@@ -68,7 +68,7 @@ def main():
             wandb_enabled=use_wandb,
             wandb_entity='paolo-magliano',
             wandb_project=f"{env}",
-            wandb_group=f"{alg}_iros_auto_beta_0.5"
+            wandb_group=f"{alg}_filter"
         )
 
         assert not " " in wandb_options["wandb_group"], "NO SPACE IN GROUP NAME"
@@ -98,4 +98,3 @@ def update_param(config, key, value, value_list):
 
 if __name__ == "__main__":
     main()
-

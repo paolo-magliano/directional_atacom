@@ -1,11 +1,13 @@
+atacom_lam: 25
+atacom_beta: 2
+atacom_dc: False
+
 use_viability: False
 
-n_epochs: 100
-n_steps: 20000
+render: False
 
-slack_limit: 10
-atacom_lam: 100
-atacom_beta: 1.5
+n_epochs: 200
+n_steps: 10000
 
 initial_replay_size: 10000
 warmup_transitions: 10000
@@ -16,15 +18,18 @@ learning_rate_critic: 3.e-4
 
 init_alpha: 0.4
 lr_alpha: 1.e-5
-target_entropy: -4
+target_entropy: -2
 batch_size: 64
 
 use_cuda: False
 
-render: False
-n_episodes_test: 50
+n_episodes_test: 25
+
+beta_policy: True
 
 n_features_critic: '256 256'
 n_features_actor: '256 256'
 activation: 'selu'
+
+normalize_state: True
 
