@@ -3,6 +3,7 @@ from contourpy import contour_generator
 import wandb
 import os
 from mushroom_rl.utils.plot import get_mean_and_confidence
+import matplotlib as mpl
 import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1.inset_locator import mark_inset, inset_axes
 import matplotlib.ticker as ticker
@@ -14,6 +15,14 @@ from scipy import interpolate
 
 import warnings
 warnings.filterwarnings("ignore", category=RuntimeWarning)
+
+mpl.rcParams.update({
+    "pdf.fonttype": 42,
+    "ps.fonttype": 42,
+    "font.family": "serif",
+    "font.serif": ["DejaVu Serif"],
+    "mathtext.fontset": "dejavuserif",
+})
 
 # # Spring Pastels from https://www.heavy.ai/blog/12-color-palettes-for-telling-better-stories-with-your-data
 COLOR_PALETTE = ["#fd7f6f", "#bd7ebe", "#3293db", "#7cc202", "#04a777", "#ffb55a", "#5e60ce", "#2f4858"]
@@ -92,11 +101,6 @@ def plot(mode, grouped_runs, y_metric, x_metric="steps", steps_per_epoch=None, s
     # Spring Pastels from https://www.heavy.ai/blog/12-color-palettes-for-telling-better-stories-with-your-data
 
     plt.rcParams["font.size"] = 40 # 55
-    plt.rcParams["font.family"] = "serif"
-    plt.rcParams["font.serif"] = ["DejaVu Serif"]
-    # plt.rcParams["mathtext.fontset"] = "cm"
-    # plt.rcParams['axes.linewidth'] = 2
-
 
     if mode == "learning":
         plt.figure(figsize=(16, 8))
@@ -527,26 +531,26 @@ def filter_dict(and_args=[], or_args=[], nor_args=[]):
     return base
 
 plots_list = [
-    # ("ijrr_air_hockey", "atacom_vs_dc", filter_dict(["atacom", "beta_2$"])), # 1 - 1 - 2
+    ("ijrr_air_hockey", "atacom_vs_dc", filter_dict(["atacom", "beta_2$"])), # 1 - 1 - 2
     ("ijrr_air_hockey", "sac_vs_dc", filter_dict([], ["sac_dc_iros_beta_2$", "^sac_iros"])),
 
-    # ("quadrotor_traj", "atacom_vs_dc", filter_dict(["atacom.*r3_beta_1\.5"])), # 3 - 3 - 5
-    # ("quadrotor_traj", "sac_vs_dc", filter_dict([],["sac_dc_iros_r3_beta_1\.5", "^sac_iros"])), # 7 - 8 - 9
+    ("quadrotor_traj", "atacom_vs_dc", filter_dict(["atacom.*r3_beta_1\.5"])), # 3 - 3 - 5
+    ("quadrotor_traj", "sac_vs_dc", filter_dict([],["sac_dc_iros_r3_beta_1\.5", "^sac_iros"])), # 7 - 8 - 9
 
-    # ("quadrotor_traj", "beta_all_training", filter_dict(["atacom", "beta"], [], ["beta_1\.4", "beta_1\.75"])),  # 5
+    ("quadrotor_traj", "beta_all_training", filter_dict(["atacom", "beta"], [], ["beta_1\.4", "beta_1\.75"])),  # 5
 
-    # ("planar_air_hockey", "sac_vs_dc", filter_dict([],["sac_dc_iros_beta_0.8", "sac_iros$"])), # 1 - 1 - 1
-    # ("planar_air_hockey", "atacom_vs_dc", filter_dict(["-atacom", "beta_0.8"])),
-    # ("planar_air_hockey", "datacom_vs_dc", filter_dict(["datacom", "iros_auto_nod"])), # 2 - 12 - 20
+    ("planar_air_hockey", "sac_vs_dc", filter_dict([],["sac_dc_iros_beta_0.8", "sac_iros$"])), # 1 - 1 - 1
+    ("planar_air_hockey", "atacom_vs_dc", filter_dict(["-atacom", "beta_0.8"])),
+    ("planar_air_hockey", "datacom_vs_dc", filter_dict(["datacom", "iros_auto_nod"])), # 2 - 12 - 20
 
-    # ("planar_air_hockey_vel", "sac_vs_dc", filter_dict([],["sac_dc_iros_beta_0.8", "sac_iros$"])), # 4 - 4 - 4
-    # ("planar_air_hockey_vel", "atacom_vs_dc", filter_dict(["-atacom", "beta_0.8"])), # 1 - 11 - 21
-    # ("planar_air_hockey_vel", "datacom_vs_dc", filter_dict(["datacom", "iros_auto"])), # 15 - 17 - 18 
-    # ("planar_air_hockey_vel", "fixed_delta", filter_dict(["datacom", "delta_0.1_"])), # 0 - 10 - 20
-    # ("planar_air_hockey_vel", "datacom_vs_dc_vs_fixed_delta", filter_dict(["datacom"], ["delta_0.1_", "iros_auto"])),
+    ("planar_air_hockey_vel", "sac_vs_dc", filter_dict([],["sac_dc_iros_beta_0.8", "sac_iros$"])), # 4 - 4 - 4
+    ("planar_air_hockey_vel", "atacom_vs_dc", filter_dict(["-atacom", "beta_0.8"])), # 1 - 11 - 21
+    ("planar_air_hockey_vel", "datacom_vs_dc", filter_dict(["datacom", "iros_auto"])), # 15 - 17 - 18 
+    ("planar_air_hockey_vel", "fixed_delta", filter_dict(["datacom", "delta_0.1_"])), # 0 - 10 - 20
+    ("planar_air_hockey_vel", "datacom_vs_dc_vs_fixed_delta", filter_dict(["datacom"], ["delta_0.1_", "iros_auto"])),
     
-    # ("planar_air_hockey_vel", "beta_all_training", filter_dict(["-atacom", "iros_beta", "^.*_beta_(?:0\.2|0\.6|1(?:\.0)?|1\.4|1\.8|2(?:\.(?:0|2|4|6|8))?|[3-9]\d*(?:\.(?:0|2|4|6|8))?)$"])), # 5
-    # ("planar_air_hockey_vel", "delta_all_training", filter_dict(["datacom", "constr_delta"])),
+    ("planar_air_hockey_vel", "beta_all_training", filter_dict(["-atacom", "iros_beta", "^.*_beta_(?:0\.2|0\.6|1(?:\.0)?|1\.4|1\.8|2(?:\.(?:0|2|4|6|8))?|[3-9]\d*(?:\.(?:0|2|4|6|8))?)$"])), # 5
+    ("planar_air_hockey_vel", "delta_all_training", filter_dict(["datacom", "constr_delta"])),
 ]
 
 
