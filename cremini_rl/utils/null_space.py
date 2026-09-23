@@ -17,7 +17,7 @@ def batch_smooth_basis_tensor(A, T0=None):
     """
     Ux = batch_qr_null_tensor(A)
     if T0 is None:
-        T0 = torch.zeros(Ux.shape[-2:], device=Ux.device)
+        T0 = torch.zeros(Ux.shape[-2:], device=Ux.device, dtype=Ux.dtype)
         T0.fill_diagonal_(1.0)
 
     else:
@@ -29,7 +29,7 @@ def batch_smooth_basis_tensor(A, T0=None):
     return (Ux @ Q)
 
 def batch_smooth_basis(A, T0=None):
-    return np.array(batch_smooth_basis_tensor(torch.tensor(A).float(), T0), float)
+    return np.array(batch_smooth_basis_tensor(torch.tensor(A).double(), T0), float)
 
 def qr_null(A, tol=None):
     Q, R = qr(A.T, mode='full')

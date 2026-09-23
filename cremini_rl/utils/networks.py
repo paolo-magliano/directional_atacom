@@ -33,6 +33,14 @@ def weight_init(m, activation, custom_scale=1):
         nn.init.xavier_uniform_(m.weight, gain=nn.init.calculate_gain(activation) / custom_scale)
 
 
+def init_mlp(trunk, activation):
+    """Xavier-uniform: activation gain on hidden layers, linear gain on the output layer."""
+    linears = [m for m in trunk if isinstance(m, nn.Linear)]
+    for layer in linears[:-1]:
+        nn.init.xavier_uniform_(layer.weight, gain=nn.init.calculate_gain(activation))
+    nn.init.xavier_uniform_(linears[-1].weight, gain=nn.init.calculate_gain('linear'))
+
+
 class MLP(nn.Module):
     def __init__(self, input_shape, output_shape, n_features, activation='relu', **kwargs):
         super(MLP, self).__init__()
@@ -161,6 +169,7 @@ class SACCriticNetwork(nn.Module):
         self.trunk = build_mlp(n_input, n_features, n_output, activation)
 
         self.apply(partial(weight_init, activation=activation))
+        # init_mlp(self.trunk, activation)  # old-repo init (xavier, linear gain on output)
 
     def forward(self, state, action):
         state_action = torch.cat((state.float(), action.float()), dim=1)
@@ -176,6 +185,8 @@ class SACActorNetwork(nn.Module):
         n_output = output_shape[0]
 
         self.trunk = build_mlp(n_input, n_features, n_output, activation)
+
+        # init_mlp(self.trunk, activation)  # old-repo init (xavier, linear gain on output)
 
     def forward(self, state):
         # IMPORTANT DO NOT SQUEEZE, mushroom breaks otherwise

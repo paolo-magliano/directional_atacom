@@ -3,9 +3,9 @@ import torch
 import torch.optim as optim
 from scipy.linalg import qr, svd
 
-from mushroom_rl.algorithms.actor_critic.deep_actor_critic import SAC
 from mushroom_rl.utils.parameters import to_parameter
 
+from cremini_rl.algorithms.sac import SAC
 from cremini_rl.utils.null_space import batch_smooth_basis, smooth_basis
 
 class AtacomSACBaseline(SAC):
@@ -16,7 +16,8 @@ class AtacomSACBaseline(SAC):
                  log_std_min=-20, log_std_max=2, target_entropy=None, critic_fit_params=None, action_filter_ratio=None, save_prev_action=None):
         super().__init__(mdp_info, actor_mu_params, actor_sigma_params, actor_optimizer, critic_params, batch_size,
                          initial_replay_size, max_replay_size, warmup_transitions, tau, lr_alpha, use_log_alpha_loss,
-                         log_std_min, log_std_max, target_entropy, critic_fit_params)
+                         log_std_min, log_std_max, target_entropy, critic_fit_params,
+                         action_filter_ratio=action_filter_ratio, save_prev_action=save_prev_action)
 
         self._log_alpha = torch.tensor(np.log(init_alpha)).to(self._log_alpha).requires_grad_(True)
         self._alpha_optim = optim.Adam([self._log_alpha], lr=lr_alpha)
@@ -32,10 +33,6 @@ class AtacomSACBaseline(SAC):
         self._atacom_dc = atacom_dc
         self.derivation_step_size = 1e-4
         # self.K = 0.5
-
-        self.prev_action = np.zeros(mdp_info.action_space.shape)
-        self.action_filter_ratio = action_filter_ratio
-        self.save_prev_action = save_prev_action
 
         self._add_save_attr(state_preprocessors='mushroom',
                             _control_system='mushroom',
@@ -62,7 +59,8 @@ class AtacomSACBaseline(SAC):
         return out
 
     def preprocess_action(self, state, alpha, next_cost):
-        alpha = np.clip(alpha, self.mdp_info.action_space.low, self.mdp_info.action_space.high)
+        # clip + action filter; the projection below acts on the filtered action
+        alpha = super().preprocess_action(state, alpha, next_cost)
 
         state_tensor = torch.from_numpy(state)
         q = self._control_system.get_q(state_tensor.numpy())
@@ -161,11 +159,6 @@ class AtacomSACBaseline(SAC):
         action = super().draw_action(self._state_preprocess(state.copy()))
 
         action = np.clip(action, self.mdp_info.action_space.low, self.mdp_info.action_space.high)
-
-        if self.action_filter_ratio:
-            action = (1 - self.action_filter_ratio) * self.prev_action + self.action_filter_ratio * action
-            self.prev_action = action.copy()
-            self.save_prev_action(self.prev_action)
 
         return action
 

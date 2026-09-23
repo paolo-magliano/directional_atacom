@@ -1,9 +1,14 @@
-import numpy as np
-from mushroom_rl.core import Core
-
+from cremini_rl.utils.ext_core import ExtCore
 from cremini_rl.algorithms.safe_layer_td3 import SafeLayerTD3, SafeLayerDDPG
 
-class SafeCore(Core):
+
+class SafeCore(ExtCore):
+    """
+    ExtCore for safety-layer algorithms: the environment returns a cost, which is
+    tracked across steps, passed to the agent's action preprocessing and stored in
+    the dataset.
+
+    """
     def __init__(self, agent, mdp, callbacks_fit=None, callback_step=None, record_dictionary=None):
         super(SafeCore, self).__init__(agent, mdp, callbacks_fit, callback_step, record_dictionary)
         self._return_prev_cost = isinstance(agent, (SafeLayerTD3, SafeLayerDDPG))
@@ -21,16 +26,11 @@ class SafeCore(Core):
 
         Returns:
             A tuple containing the previous state, the action sampled by the agent, the reward obtained, the reached
-            state, the absorbing flag of the reached state and the last step flag.
+            state, the cost obtained, the absorbing flag of the reached state and the last step flag.
 
         """
         action = self.agent.draw_action(self._state)
-
-        transformed_action = action
-        if hasattr(self.agent, 'preprocess_action') and callable(self.agent.preprocess_action):
-            transformed_action = self.agent.preprocess_action(self._state[np.newaxis], action, self._cost)
-
-        next_state, reward, cost, absorbing, step_info = self.mdp.step(transformed_action)
+        next_state, reward, cost, absorbing, step_info = self.mdp.step(self._preprocess_action(action, self._cost))
 
         self._episode_steps += 1
 

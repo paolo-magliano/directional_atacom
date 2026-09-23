@@ -1,6 +1,8 @@
+import numpy as np
+import torch
 import torch.optim as optim
 from mushroom_rl.utils.preprocessors import MinMaxPreprocessor
-from mushroom_rl.algorithms.actor_critic.deep_actor_critic import TD3, SAC
+from mushroom_rl.algorithms.actor_critic.deep_actor_critic import TD3
 from mushroom_rl.policy import ClippedGaussianPolicy
 
 from cremini_rl.algorithms import *
@@ -46,7 +48,34 @@ def agent_builder(alg, mdp, control_system, normalize_state, **kwargs):
         agent = build_wcsac(mdp, **kwargs)
 
     if normalize_state:
-        agent.add_state_preprocessor(MinMaxPreprocessor(mdp.info))
+        if hasattr(agent, "add_state_preprocessor"):
+            agent.add_state_preprocessor(MinMaxPreprocessor(mdp.info))
+        else:
+            agent.add_preprocessor(MinMaxPreprocessor(mdp.info))
+
+    return agent
+
+
+def apply_beta_policy(agent, mdp, actor_mu_params, actor_sigma_params, actor_optimizer):
+    """Replace the agent's Gaussian policy with a Beta policy over the action box."""
+    from mushroom_rl.approximators import Regressor
+    from mushroom_rl.approximators.parametric import TorchApproximator
+    from itertools import chain
+
+    policy_params = {
+        'min_a': mdp.info.action_space.low,
+        'max_a': mdp.info.action_space.high
+    }
+
+    actor_alpha_approximator = Regressor(TorchApproximator, **actor_mu_params)
+    actor_beta_approximator = Regressor(TorchApproximator, **actor_sigma_params)
+
+    policy_parameters = chain(actor_alpha_approximator.model.network.parameters(),
+                              actor_beta_approximator.model.network.parameters())
+    agent.policy = BetaPolicy(alpha_approximator=actor_alpha_approximator,
+                              beta_approximator=actor_beta_approximator,
+                              **policy_params)
+    agent._optimizer = actor_optimizer['class'](policy_parameters, **actor_optimizer['params'])
 
     return agent
 
@@ -62,11 +91,12 @@ def build_baseline_atacom_sac(mdp, control_system, slack_limit, atacom_lam, atac
 
     constraint_func = mdp.constraint_func
 
-    action_filter_ratio = mdp.action_filter_ratio
+    action_filter_ratio = getattr(mdp, "action_filter_ratio", None)
     save_prev_action = mdp.save_prev_action_obs if hasattr(mdp, "save_prev_action_obs") else None
 
     if mdp.__class__.__name__.startswith("AirHockey"):
-        atacom_beta = [atacom_beta] * 19 + [0.01] * 2
+        atacom_beta = [atacom_beta] * mdp.original_constraint_list.output_dim()
+        atacom_beta[-4] = atacom_beta[-3] = 0.01
 
     agent = AtacomSACBaseline(mdp.info, control_system, slack_limit, atacom_lam, atacom_beta, atacom_dc, constraint_func, use_viability,
                               actor_mu_params,
@@ -77,24 +107,7 @@ def build_baseline_atacom_sac(mdp, control_system, slack_limit, atacom_lam, atac
                               batch_size=batch_size, init_alpha=init_alpha, action_filter_ratio=action_filter_ratio, save_prev_action=save_prev_action)
 
     if beta_policy:
-        from mushroom_rl.approximators import Regressor
-        from mushroom_rl.approximators.parametric import TorchApproximator
-        from itertools import chain
-
-        policy_params = {
-            'min_a': mdp.info.action_space.low,
-            'max_a': mdp.info.action_space.high
-        }
-
-        actor_alpha_approximator = Regressor(TorchApproximator, **actor_mu_params)
-        actor_beta_approximator = Regressor(TorchApproximator, **actor_sigma_params)
-
-        policy_parameters = chain(actor_alpha_approximator.model.network.parameters(),
-                                  actor_beta_approximator.model.network.parameters())
-        agent.policy = BetaPolicy(alpha_approximator=actor_alpha_approximator,
-                                  beta_approximator=actor_beta_approximator,
-                                  **policy_params)
-        agent._optimizer = actor_optimizer['class'](policy_parameters, **actor_optimizer['params'])
+        apply_beta_policy(agent, mdp, actor_mu_params, actor_sigma_params, actor_optimizer)
 
     return agent
 
@@ -262,16 +275,26 @@ def build_sac_params(mdp, n_features_actor, n_features_critic, learning_rate_act
 
 def build_sac(mdp, initial_replay_size, max_replay_size, batch_size, n_features_actor, n_features_critic,
               learning_rate_actor, learning_rate_critic, activation, use_cuda, tau, lr_alpha, target_entropy, warmup_transitions,
+              init_alpha=None, beta_policy=False,
               **kwargs):
     actor_mu_params, actor_sigma_params, actor_optimizer, critic_params, alg_params = \
-        build_sac_params(mdp, n_features_actor, n_features_critic, learning_rate_actor, learning_rate_critic, activation, 
+        build_sac_params(mdp, n_features_actor, n_features_critic, learning_rate_actor, learning_rate_critic, activation,
                          use_cuda, tau, lr_alpha, target_entropy, warmup_transitions)
 
     print(alg_params, use_cuda)
 
     agent = SAC(mdp.info, actor_mu_params, actor_sigma_params, actor_optimizer, critic_params, **alg_params,
                 initial_replay_size=initial_replay_size, max_replay_size=max_replay_size,
-                batch_size=batch_size)
+                batch_size=batch_size,
+                action_filter_ratio=getattr(mdp, "action_filter_ratio", None),
+                save_prev_action=getattr(mdp, "save_prev_action_obs", None))
+
+    if init_alpha is not None:
+        agent._log_alpha = torch.tensor(np.log(init_alpha)).to(agent._log_alpha).requires_grad_(True)
+        agent._alpha_optim = optim.Adam([agent._log_alpha], lr=lr_alpha)
+
+    if beta_policy:
+        apply_beta_policy(agent, mdp, actor_mu_params, actor_sigma_params, actor_optimizer)
 
     return agent
 

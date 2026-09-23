@@ -46,6 +46,8 @@ class AirHockey(AirHockeySingle, ConstrEnv):
 
         self.info.action_space = Box(low=-np.ones(self.env_info['robot']['n_joints']), high=np.ones(self.env_info['robot']['n_joints']))  
 
+        self.integrator_pos_limit = self.env_info['robot']['joint_pos_limit'] * 0.95
+
         self.env_info['robot']['joint_pos_limit'][:, 2] = np.array([-np.pi/2, np.pi/2])
         self.env_info['robot']['joint_pos_limit'][:, 4] = np.array([-np.pi/2, np.pi/2])
         self.env_info['robot']['joint_pos_limit'][:, 6] = np.array([-np.pi/2, np.pi/2])

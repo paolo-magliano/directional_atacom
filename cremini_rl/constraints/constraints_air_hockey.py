@@ -10,7 +10,7 @@ class EndEffectorConstraint(EEConstraint):
         self.x_lb = - self._env_info['robot']['base_frame'][0][0, 3] - (
                 self._env_info['table']['length'] / 2 - self._env_info['mallet']['radius']) + tolerance
         self.y_lb = - (self._env_info['table']['width'] / 2 - self._env_info['mallet']['radius']) + tolerance
-        self.y_ub = (self._env_info['table']['width'] / 2 - self._env_info['mallet']['radius']) + tolerance
+        self.y_ub = (self._env_info['table']['width'] / 2 - self._env_info['mallet']['radius']) - tolerance
         self.z_lb = self._env_info['robot']['ee_desired_height'] - z_tolerance
         self.z_ub = self._env_info['robot']['ee_desired_height'] + z_tolerance
 

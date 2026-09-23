@@ -35,6 +35,3 @@ use_viability: False
 
 constr_aggregation: 'max' # none, array, max
 constr_aggregation_value_function: 'none' # none, array, max
-
-# checkpoint: 
-#         "logs/planar_air_hockey_vel_2026-02-27_16-09-29/0/agent.msh"

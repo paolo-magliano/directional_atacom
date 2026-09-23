@@ -7,10 +7,10 @@ import os
 
 
 def main():
-    # Choices: cartpole, tiago_navigation, planar_air_hockey, planar_air_hockey_vel, dense_ball2d, goal_navigation,
+    # Choices: air_hockey_vel, planar_air_hockey, planar_air_hockey_vel, quadrotor,
     env = "air_hockey_vel"
-    # Choices: sac, td3, datacom_sac, iqn_datacom_sac, safelayer_td3, lag_sac, wc_lag_sac, cbf_sac, baseline-atacom_sac
-    alg = "baseline-atacom_sac"
+    # Choices: sac, baseline-atacom_sac, baseline-atacom_sac_dc, datacom_sac, datacom_sac_dc
+    alg = "baseline-atacom_sac_dc"
 
     # Load configs based on the algorithm and environment, there are defaults for each algorithm. They are merged
     # with the environment specific config if it exists.
@@ -66,9 +66,9 @@ def main():
 
         wandb_options = dict(
             wandb_enabled=use_wandb,
-            wandb_entity='paolo-magliano',
+            wandb_entity=os.environ.get("WANDB_ENTITY", "paolo-magliano"),
             wandb_project=f"{env}",
-            wandb_group=f"{alg}_filter"
+            wandb_group=f"{alg}"
         )
 
         assert not " " in wandb_options["wandb_group"], "NO SPACE IN GROUP NAME"

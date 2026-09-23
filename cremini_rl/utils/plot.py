@@ -9,6 +9,7 @@ from mpl_toolkits.axes_grid1.inset_locator import mark_inset, inset_axes
 import matplotlib.ticker as ticker
 import numpy as np
 import pandas as pd
+import random
 import re
 from adjustText import adjust_text
 from scipy import interpolate
@@ -408,12 +409,13 @@ def group_run_histories_by_key(entity, project, save_path, group_key, filters, k
         # group_key_val = float(temp)
         group_key_val = temp
 
-        if run.config.get("seed"):
-            seed = run.config.get("seed")  
-        elif run.metadata.get("args"):
-            seed = int(run.metadata.get("args")[run.metadata.get("args").index("--seed") + 1])
-        else:
-            import random
+        seed = run.config.get("seed")
+
+        args = (run.metadata or {}).get("args")
+        if seed is None and args and "--seed" in args:
+            seed = int(args[args.index("--seed") + 1])
+
+        if seed is None:
             seed = - random.randint(1, 1000)
 
 
@@ -505,11 +507,7 @@ def plot_air_hockey_constraint(agent):
     pass
 
 def filter_dict(and_args=[], or_args=[], nor_args=[]):
-    base = {
-        "$and": [
-            {"group": {"$regex": "iros"}},
-        ]
-    }
+    base = {"$and": []}
 
     for arg in and_args:
         base["$and"].append({"group": {"$regex": arg}})
@@ -531,31 +529,24 @@ def filter_dict(and_args=[], or_args=[], nor_args=[]):
     return base
 
 plots_list = [
-    ("ijrr_air_hockey", "atacom_vs_dc", filter_dict(["atacom", "beta_2$"])), # 1 - 1 - 2
-    ("ijrr_air_hockey", "sac_vs_dc", filter_dict([], ["sac_dc_iros_beta_2$", "^sac_iros"])),
+    # ("air_hockey_vel", "atacom_vs_dc", filter_dict([], ["^baseline-atacom_sac$", "^baseline-atacom_sac_dc$"])),
+    # ("air_hockey_vel", "sac_vs_dc", filter_dict([], ["^sac$", "^baseline-atacom_sac_dc$"])),
 
-    ("quadrotor_traj", "atacom_vs_dc", filter_dict(["atacom.*r3_beta_1\.5"])), # 3 - 3 - 5
-    ("quadrotor_traj", "sac_vs_dc", filter_dict([],["sac_dc_iros_r3_beta_1\.5", "^sac_iros"])), # 7 - 8 - 9
+    # ("quadrotor", "atacom_vs_dc", filter_dict([], ["^baseline-atacom_sac$", "^baseline-atacom_sac_dc$"])),
+    # ("quadrotor", "sac_vs_dc", filter_dict([], ["^sac$", "^baseline-atacom_sac_dc$"])),
 
-    ("quadrotor_traj", "beta_all_training", filter_dict(["atacom", "beta"], [], ["beta_1\.4", "beta_1\.75"])),  # 5
+    # ("planar_air_hockey", "atacom_vs_dc", filter_dict([], ["^baseline-atacom_sac$", "^baseline-atacom_sac_dc$"])),
+    # ("planar_air_hockey", "sac_vs_dc", filter_dict([], ["^sac$", "^baseline-atacom_sac_dc$"])),
+    # ("planar_air_hockey", "datacom_vs_dc", filter_dict([], ["^datacom_sac$", "^datacom_sac_dc$"])),
 
-    ("planar_air_hockey", "sac_vs_dc", filter_dict([],["sac_dc_iros_beta_0.8", "sac_iros$"])), # 1 - 1 - 1
-    ("planar_air_hockey", "atacom_vs_dc", filter_dict(["-atacom", "beta_0.8"])),
-    ("planar_air_hockey", "datacom_vs_dc", filter_dict(["datacom", "iros_auto_nod"])), # 2 - 12 - 20
-
-    ("planar_air_hockey_vel", "sac_vs_dc", filter_dict([],["sac_dc_iros_beta_0.8", "sac_iros$"])), # 4 - 4 - 4
-    ("planar_air_hockey_vel", "atacom_vs_dc", filter_dict(["-atacom", "beta_0.8"])), # 1 - 11 - 21
-    ("planar_air_hockey_vel", "datacom_vs_dc", filter_dict(["datacom", "iros_auto"])), # 15 - 17 - 18 
-    ("planar_air_hockey_vel", "fixed_delta", filter_dict(["datacom", "delta_0.1_"])), # 0 - 10 - 20
-    ("planar_air_hockey_vel", "datacom_vs_dc_vs_fixed_delta", filter_dict(["datacom"], ["delta_0.1_", "iros_auto"])),
-    
-    ("planar_air_hockey_vel", "beta_all_training", filter_dict(["-atacom", "iros_beta", "^.*_beta_(?:0\.2|0\.6|1(?:\.0)?|1\.4|1\.8|2(?:\.(?:0|2|4|6|8))?|[3-9]\d*(?:\.(?:0|2|4|6|8))?)$"])), # 5
-    ("planar_air_hockey_vel", "delta_all_training", filter_dict(["datacom", "constr_delta"])),
+    # ("planar_air_hockey_vel", "atacom_vs_dc", filter_dict([], ["^baseline-atacom_sac$", "^baseline-atacom_sac_dc$"])),
+    # ("planar_air_hockey_vel", "sac_vs_dc", filter_dict([], ["^sac$", "^baseline-atacom_sac_dc$"])),
+    # ("planar_air_hockey_vel", "datacom_vs_dc", filter_dict([], ["^datacom_sac$", "^datacom_sac_dc$"])),
 ]
 
 
 if __name__ == '__main__':
-    entity = "paolo-magliano"
+    entity = os.environ.get("WANDB_ENTITY", "paolo-magliano")
 
     performance_metrics = ["R", "J"]
     safety_metrics = ["sum_cost", "max_cost", "violation_rate"]

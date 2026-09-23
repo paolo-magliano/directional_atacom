@@ -25,9 +25,11 @@ class VelocityControl(PositionControl):
         """
         pos, vel = self.get_joints(obs)
 
+        pos_limit = getattr(self, 'integrator_pos_limit', self.env_info['robot']['joint_pos_limit'])
+
         # Compute the soft limit of the acceleration,
         # details can be found here: http://wiki.ros.org/pr2_controller_manager/safety_limits
-        vel_soft_limit = np.clip(-5 * (pos - self.env_info['robot']['joint_pos_limit']), self.env_info['robot']['joint_vel_limit'][0], self.env_info['robot']['joint_vel_limit'][1])
+        vel_soft_limit = np.clip(-5 * (pos - pos_limit), self.env_info['robot']['joint_vel_limit'][0], self.env_info['robot']['joint_vel_limit'][1])
 
         clipped_vel = np.clip(integrand, *vel_soft_limit).squeeze()
         pos += clipped_vel * self.dt

@@ -1,6 +1,6 @@
 import torch
 
-from mushroom_rl.core import Logger, Core
+from mushroom_rl.core import Logger
 from mushroom_rl.utils.dataset import compute_J, compute_episodes_length, parse_dataset, get_init_states
 from mushroom_rl.core import Agent
 
@@ -8,6 +8,7 @@ from cremini_rl.envs import *
 from cremini_rl.envs.tiago_navigation_env import TiagoNavigationEnv
 from cremini_rl.envs.cartpole_goal_env import SafeCartPoleEnv
 
+from cremini_rl.utils.ext_core import ExtCore
 from cremini_rl.utils.safe_core import SafeCore
 from cremini_rl.dynamics import *
 
@@ -58,7 +59,9 @@ def experiment(results_dir: str,
         os.environ["MUJOCO_GL"] = "egl"
         os.environ["PYDEVD_WARN_EVALUATION_TIMEOUT"] = "300"
 
-    wandb.init(project=kwargs['wandb_project'], dir=results_dir, group=kwargs['wandb_group'], mode="online" if kwargs['wandb_enabled'] else "disabled", entity=kwargs['wandb_entity'])
+    wandb.init(project=kwargs['wandb_project'], dir=results_dir, group=kwargs['wandb_group'],
+               mode="online" if kwargs['wandb_enabled'] else "disabled", entity=kwargs['wandb_entity'],
+               config=dict(env_name=env_name, alg=alg, seed=seed, n_epochs=n_epochs, n_steps=n_steps, **kwargs))
 
     logger = Logger(log_name=".", results_dir=results_dir)
     logger.strong_line()
@@ -81,7 +84,7 @@ def experiment(results_dir: str,
     if return_cost:
         core = SafeCore(agent, mdp, record_dictionary={'path': "/".join(str(logger.path).split("/")[:-1]), 'tag': str(logger.path).split("/")[-1], 'video_name': 'policy'})
     else:
-        core = Core(agent, mdp, record_dictionary={'path': "/".join(str(logger.path).split("/")[:-1]), 'tag': str(logger.path).split("/")[-1], 'video_name': 'policy'})
+        core = ExtCore(agent, mdp, record_dictionary={'path': "/".join(str(logger.path).split("/")[:-1]), 'tag': str(logger.path).split("/")[-1], 'video_name': 'policy'})
 
     # LEarn dynamics
     # core.learn(n_steps=52000, n_steps_per_fit=1, quiet=quiet, render=render)
@@ -423,12 +426,12 @@ def build_mdp(env_name, return_cost):
     elif env_name == "air_hockey_vel":
         q_idx = [6, 7, 8, 9, 10, 11, 12]
         mdp = AirHockeyVel(return_cost=return_cost, action_filter_ratio=0.2)
-        control_system = VelocityControlSystem(7, q_idx, 1)
+        control_system = VelocityControlSystem(7, q_idx, mdp.env_info['robot']['joint_vel_limit'][1])
 
     elif env_name == "air_hockey":
         q_idx = [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
         mdp = AirHockeyAcc(return_cost=return_cost, action_filter_ratio=0.2)
-        control_system = AccelerationControlSystem(7, q_idx, 1)
+        control_system = AccelerationControlSystem(7, q_idx, mdp.env_info['robot']['joint_acc_limit'][1])
 
     elif env_name == "planar_air_hockey_vel":
         q_idx = [6, 7, 8]
