@@ -185,9 +185,11 @@ class PlanarAirHockeyVel(VelocityControl, PlanarAirHockey):
         constraints_class = [JointPositionConstraint, EndEffectorConstraint]
 
         K_values = [1.0, 0.5]
-        
+
         self.constraint_init(constraints_class, K_values)
-        
+
+        self.n_learnable_constr = self.K.shape[0] - 2
+
 class PlanarAirHockeyAcc(AccelerationControl, PlanarAirHockey):
     def __init__(self, return_cost=True, dynamic_noise=0, headless=True):
         super(PlanarAirHockeyAcc, self).__init__(return_cost, dynamic_noise, headless)
@@ -197,6 +199,8 @@ class PlanarAirHockeyAcc(AccelerationControl, PlanarAirHockey):
         K_values = [1.0, 0.5, 0.]
 
         self.constraint_init(constraints_class, K_values)
+
+        self.n_learnable_constr = self.K.shape[0] - 2
 
     def _preprocess_action(self, action):
         action = super(PlanarAirHockeyAcc, self)._preprocess_action(action)

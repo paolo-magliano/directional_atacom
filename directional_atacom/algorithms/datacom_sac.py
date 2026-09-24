@@ -133,16 +133,8 @@ class DatacomSACPolicy(Policy):
         )
 
     def draw_action(self, state):
-        action = self.compute_action_and_log_prob_t(np.atleast_2d(self._preprocess(state.copy())), return_log_prob=False)
+        action = self.compute_action_and_log_prob_t(np.atleast_2d(state), return_log_prob=False)
         return action.detach().cpu().numpy()
-
-    def _preprocess(self, state):
-        for p in self.preprocessors:
-            if state.ndim == 2:
-                state = np.array([p(s.copy()) for s in state])
-            else:
-                state = p(state)
-        return state
 
     def apply_atacom(self, alpha, state):
         alpha_clipped = torch.clamp(alpha, -1, 1)
