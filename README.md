@@ -5,7 +5,7 @@ Paolo Magliano, Puze Liu, Jan Peters, Davide Tateo, Raffaello Camoriano — *IRO
 
 [Project page](https://research.robot-learning.net/atacom-dc/) · [arXiv](https://arxiv.org/abs/2607.12784) · [Video](https://www.youtube.com/watch?v=G56UBijyyus)
 
-<video src="https://raw.githubusercontent.com/paolo-magliano/directional_atacom/iros2026/figs/atacom_dc_video.mp4" controls></video>
+https://github.com/user-attachments/assets/beb8cd2b-1e56-4c51-b1b4-11e733845303
 
 ATACOM keeps a policy inside the safe set by projecting every action onto the constraint manifold. Directional Constraints (DC) apply that projection **only to actions that push the system towards a boundary**: actions moving away from it are left untouched. Exploration stays free where it is harmless, which improves the safety–performance trade-off during learning.
 
