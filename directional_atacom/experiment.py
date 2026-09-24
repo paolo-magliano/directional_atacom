@@ -5,8 +5,6 @@ from mushroom_rl.utils.dataset import compute_J, compute_episodes_length, parse_
 from mushroom_rl.core import Agent
 
 from directional_atacom.envs import *
-from directional_atacom.envs.tiago_navigation_env import TiagoNavigationEnv
-from directional_atacom.envs.cartpole_goal_env import SafeCartPoleEnv
 
 from directional_atacom.utils.ext_core import ExtCore
 from directional_atacom.utils.safe_core import SafeCore
@@ -67,7 +65,7 @@ def experiment(results_dir: str,
     logger.strong_line()
     logger.info('Experiment Algorithm: ' + alg)
 
-    return_cost = "atacom" in alg or "safelayer" in alg or "lag" in alg or alg == "wcsac" or alg == "cbf_sac"
+    return_cost = "atacom" in alg
 
     mdp, control_system = build_mdp(env_name, return_cost)
 
@@ -346,9 +344,6 @@ def evaluate(core, n_episodes_test, gamma, quiet, render, record=False):
     if hasattr(core.agent.policy, "_max_seen_constraint"):
         data_dict["max_seen_const"] = core.agent.policy._max_seen_constraint
 
-    if hasattr(core.agent.policy, "_tolerance_cbf"):
-        data_dict["tolerance_cbf"] = core.agent.policy._delta.detach().numpy()
-
     return data_dict
 
 
@@ -396,34 +391,7 @@ def log_data(data, episode, logger):
         os.remove(record_path)
 
 def build_mdp(env_name, return_cost):
-    if env_name == "ball2d":
-        mdp = BallND(n=2, return_cost=return_cost)
-
-        control_system = VelocityControlSystem(2, list(range(2)), 1)
-
-    if env_name == "dense_ball2d":
-        mdp = BallND(n=2, return_cost=return_cost, dense_const=True)
-
-        control_system = VelocityControlSystem(2, list(range(2)), 1)
-
-    elif env_name == "tiago_navigation":
-        mdp = TiagoNavigationEnv(return_cost=return_cost)
-
-        control_system = TiagoNavigationDynamics()
-
-    elif env_name == "cartpole":
-        mdp = SafeCartPoleEnv(return_cost=return_cost)
-
-        dynamics_info = {'mc': mdp.base_env._model.body('cart').mass[0],
-                         'mp': mdp.base_env._model.body('pole_1').mass[0],
-                         'l': mdp.base_env._model.geom('pole_1').size[1],
-                         'g': -mdp.base_env._model.opt.gravity[2],
-                         'u_limit': mdp.base_env._model.actuator_gear[0, 0] * 0.95,
-                         'Jp': mdp.base_env._model.body_inertia[2, 1]}
-
-        control_system = CartPoleControlSystem(**dynamics_info)
-
-    elif env_name == "air_hockey_vel":
+    if env_name == "air_hockey_vel":
         q_idx = [6, 7, 8, 9, 10, 11, 12]
         mdp = AirHockeyVel(return_cost=return_cost, action_filter_ratio=0.2)
         control_system = VelocityControlSystem(7, q_idx, mdp.env_info['robot']['joint_vel_limit'][1])
@@ -443,24 +411,6 @@ def build_mdp(env_name, return_cost):
         mdp = PlanarAirHockeyAcc(return_cost=return_cost, dynamic_noise=0)
         control_system = AccelerationControlSystem(3, q_idx, 1)
 
-    elif env_name == "goal_navigation":
-        mdp = GoalNavigationEnv(return_cost=return_cost)
-
-        control_system = GoalNavigationControlSystem(vases=False)
-
-    elif env_name == "static_goal_navigation":
-        mdp = GoalNavigationEnv(static=True, return_cost=return_cost)
-
-        control_system = GoalNavigationControlSystem(vases=False)
-
-    elif env_name == "moving_obs_2d":
-        mdp = MovingObsEnv(return_cost=return_cost, random_obs=True)
-
-        q_idx = [0, 1]
-        x_idx = 2 + np.arange(2 * mdp.n_obs)
-        x_dot_idx = x_idx[-1] + 1 + np.arange(2 * mdp.n_obs)
-        control_system = MovingObsDynamics(2, q_idx, x_idx, x_dot_idx, mdp.vel_limits)
-
     elif env_name == "quadrotor":
         mdp = QuadrotorEnv(return_cost=return_cost)
         
@@ -479,9 +429,8 @@ def parse_args():
     arg_exp = parser.add_argument_group('Experiment')
 
     arg_exp.add_argument("--env_name", type=str)
-    arg_exp.add_argument("--alg", choices=[x for alg in ["sac", "td3", "datacom_sac", 'iqn_datacom_sac',
-                                           "safelayer_td3", "lag_sac", "wc_lag_sac",
-                                           'cbf_sac', "atacom_sac"] for x in (alg, alg + "_dc")])
+    arg_exp.add_argument("--alg", choices=[x for alg in ["sac", "datacom_sac", "atacom_sac"]
+                                          for x in (alg, alg + "_dc")])
 
     arg_exp.add_argument("--n_epochs", type=int)
     arg_exp.add_argument("--n_steps", type=int)
@@ -506,9 +455,6 @@ def parse_args():
     arg_exp.add_argument("--batch_size", type=int)
 
     arg_exp.add_argument("--accepted_risk", type=float)
-    arg_exp.add_argument("--learning_strategy", type=str)
-    arg_exp.add_argument("--cbf_gamma", type=float)
-    arg_exp.add_argument("--margin_type", type=str)
 
     arg_exp.add_argument("--constraint_init_size", type=int)
     arg_exp.add_argument("--constraint_max_size", type=int)
@@ -540,22 +486,6 @@ def parse_args():
     arg_exp.add_argument("--constr_aggregation", type=str)
     arg_exp.add_argument("--constr_aggregation_value_function", type=str)
     arg_exp.add_argument("--violation_memory_ratio", type=float)
-
-    # IQN
-    arg_exp.add_argument("--quantile_embedding_dim", type=int)
-    arg_exp.add_argument("--num_quantile_samples", type=int)
-    arg_exp.add_argument("--num_next_quantile_samples", type=int)
-
-    # SafeLayer
-    arg_exp.add_argument("--delta", type=float)
-
-    # Lagranien SAC
-    arg_exp.add_argument("--lr_beta", type=float)
-    arg_exp.add_argument("--cost_limit", type=float)
-    arg_exp.add_argument("--damp_scale", type=float)
-
-    # WCSAC
-    arg_exp.add_argument("--constraint_type", type=str)
 
     arg_exp.add_argument("--debug", type=lambda x: x.lower() == "true")
     arg_exp.add_argument("--seed", type=int, default=0)

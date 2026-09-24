@@ -1,18 +1,13 @@
 from directional_atacom.utils.ext_core import ExtCore
-from directional_atacom.algorithms.safe_layer_td3 import SafeLayerTD3, SafeLayerDDPG
 
 
 class SafeCore(ExtCore):
     """
-    ExtCore for safety-layer algorithms: the environment returns a cost, which is
-    tracked across steps, passed to the agent's action preprocessing and stored in
-    the dataset.
+    ExtCore for safe algorithms: the environment returns a cost, which is tracked
+    across steps, passed to the agent's action preprocessing and stored in the
+    dataset.
 
     """
-    def __init__(self, agent, mdp, callbacks_fit=None, callback_step=None, record_dictionary=None):
-        super(SafeCore, self).__init__(agent, mdp, callbacks_fit, callback_step, record_dictionary)
-        self._return_prev_cost = isinstance(agent, (SafeLayerTD3, SafeLayerDDPG))
-
     def reset(self, initial_states=None):
         super(SafeCore, self).reset(initial_states)
         self._cost = 0
@@ -47,10 +42,6 @@ class SafeCore(ExtCore):
         next_state = self._preprocess(next_state.copy())
         self._state = next_state
 
-        prev_cost = self._cost
         self._cost = cost
-
-        if self._return_prev_cost:
-            return (state, action, reward, next_state, cost, prev_cost, absorbing, last), step_info
 
         return (state, action, reward, next_state, cost, absorbing, last), step_info

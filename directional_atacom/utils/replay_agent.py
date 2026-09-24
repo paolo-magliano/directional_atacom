@@ -11,23 +11,20 @@ from directional_atacom.utils.ext_core import ExtCore
 from directional_atacom.utils.safe_core import SafeCore
 
 safe_agent = True
-# path_to_agent = "../logs/cartpole_2024-05-01_14-49-01/0/agent-102.msh"
-path_to_agent = "agent_cbf.msh"
+# path_to_agent = "../logs/air_hockey_vel_2026-09-20_20-25-06/0/agent-200.msh"
+path_to_agent = "agent.msh"
 if safe_agent:
-    # agent = WCSAC.load(path_to_agent)
-    # agent = GaussianAtacomSAC.load(path_to_agent)
-    agent = CBFSAC.load(path_to_agent)
+    # agent = DatacomSAC.load(path_to_agent)
+    agent = AtacomSAC.load(path_to_agent)
 else:
     agent = SAC.load(path_to_agent)
 
 # np.random.seed(18)
 # torch.manual_seed(18)
 
-# mdp = SafeCartPoleEnv(horizon=agent.mdp_info.horizon, gamma=agent.mdp_info.gamma, return_cost=safe_agent)
-# mdp = TiagoNavigationEnv(horizon=agent.mdp_info.horizon, gamma=agent.mdp_info.gamma, return_cost=safe_agent, render=True)
-# mdp = DockingEnv(horizon=agent.mdp_info.horizon, gamma=agent.mdp_info.gamma, return_cost=True)
-mdp = PlanarAirhockeyEnv(return_cost=safe_agent)
-# mdp = GoalNavigationEnv(horizon=agent.mdp_info.horizon, gamma=agent.mdp_info.gamma, return_cost=safe_agent, static=True, render=True)
+# mdp = AirHockeyVel(return_cost=safe_agent, headless=False)
+# mdp = QuadrotorEnv(return_cost=safe_agent)
+mdp = PlanarAirHockeyVel(return_cost=safe_agent)
 
 if safe_agent:
     core = SafeCore(agent, mdp)
