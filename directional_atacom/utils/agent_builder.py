@@ -48,6 +48,10 @@ def agent_builder(alg, mdp, control_system, normalize_state, **kwargs):
         agent = build_wcsac(mdp, **kwargs)
 
     if normalize_state:
+        if isinstance(agent, DatacomSAC):
+            raise ValueError("normalize_state is not supported for D-ATACOM: its policy needs the "
+                             "state in the units of the environment.")
+
         if hasattr(agent, "add_state_preprocessor"):
             agent.add_state_preprocessor(MinMaxPreprocessor(mdp.info))
         else:
@@ -303,6 +307,10 @@ def build_datacom_sac(mdp, control_system, initial_replay_size, max_replay_size,
                       accepted_risk, learning_rate_constraint, constraint_weight_decay,
                       slack_limit, atacom_lam, atacom_beta, use_cuda, tau, lr_alpha, target_entropy, atacom_dc, use_viability, violation_memory_ratio,
                       warmup_transitions, cost_budget, constr_aggregation, constr_aggregation_value_function, lr_delta, init_delta, delta_warmup_transitions, **kwargs):
+    if not hasattr(mdp, "n_learnable_constr"):
+        raise ValueError(f"{type(mdp).__name__} does not define n_learnable_constr: D-ATACOM is only "
+                         "supported on the planar air hockey environments.")
+
     constraint_params = build_constraint(control_system, "gaussian",
                                          learning_rate_constraint, n_features_constraint, use_cuda)
 
