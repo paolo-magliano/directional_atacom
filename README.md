@@ -11,21 +11,15 @@ ATACOM keeps a policy inside the safe set by projecting every action onto the co
 
 ## Setup
 
-Python 3.10 is recommended. Clone the project and the Air Hockey Challenge, pinned to the commit used for the reported results:
+Python 3.10 is recommended. The Air Hockey Challenge comes in as a submodule, pinned to the commit used for the reported results:
 
 ```bash
-git clone https://github.com/paolo-magliano/directional_atacom.git
-git clone --branch qualifying https://github.com/AirHockeyChallenge/air_hockey_challenge.git
-cd air_hockey_challenge && git checkout 4dc076384f457355918419c909edf65e160d4ed3
+git clone --recurse-submodules https://github.com/paolo-magliano/directional_atacom.git
+cd directional_atacom
+pip install -r requirement.txt
 ```
 
-Install both packages:
-
-```bash
-pip install -e .                       # from air_hockey_challenge/
-cd ../directional_atacom
-pip install -r requirement.txt         # includes -e . for this package
-```
+`requirement.txt` installs both the challenge (from `external/air_hockey_challenge`) and this package in editable mode. If you cloned without `--recurse-submodules`, run `git submodule update --init` first.
 
 ## Usage
 

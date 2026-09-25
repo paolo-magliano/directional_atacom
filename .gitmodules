@@ -1,0 +1,3 @@
+[submodule "external/air_hockey_challenge"]
+	path = external/air_hockey_challenge
+	url = https://github.com/AirHockeyChallenge/air_hockey_challenge.git

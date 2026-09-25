@@ -18,7 +18,7 @@ dependencies = [
 
 [tool.uv.sources]
 directional-atacom = { workspace = true }
-airhockeychallenge = { git = "https://github.com/AirHockeyChallenge/air_hockey_challenge.git" }
+airhockeychallenge = { path = "external/air_hockey_challenge", editable = true }
 
 [tool.uv]
 package=true
