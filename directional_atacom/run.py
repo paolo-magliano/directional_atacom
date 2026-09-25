@@ -61,6 +61,7 @@ def main():
 
     start_seed=0
 
+    # conda_env, partition and gres are specific to our SLURM cluster, adjust them for yours
     if n_record:
         launcher_record = Launcher(f'{env}_record', f"experiment", n_seeds=n_record, start_seed=start_seed, memory_per_core=10000, n_cores=1,
                         conda_env="d_atacom", hours=24, n_exps_in_parallel=n_record, partition="stud", gres='gpu:rtx2080:1')

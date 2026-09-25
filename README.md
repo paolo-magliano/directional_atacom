@@ -36,6 +36,8 @@ python run.py
 
 Choose the environment and the algorithm at the top of `run.py` (`env`, `alg`); `alg` selects the config files merged from `configs/`, where the `_dc` suffix enables Directional Constraints. Training curves are logged to Weights & Biases and to `logs/`; `utils/plot.py` reproduces the figures from the logged runs.
 
+The launcher settings in `run.py` (`conda_env`, `partition`, `gres`) and the Weights & Biases entity match our SLURM cluster, so adjust them for your setup or set `WANDB_ENTITY` in the environment.
+
 ## Adding new environments
 
 Add the environment to the `build_mdp` function in `directional_atacom/experiment.py`. It must subclass `mushroom_rl.core.Environment`, and ATACOM additionally needs the agent dynamics as a subclass of `directional_atacom.dynamics.dynamics.ControlAffineSystem`.
